@@ -1,0 +1,106 @@
+package io.github.lbondoc.postmarked.data
+
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
+import io.github.lbondoc.postmarked.domain.geo.Place
+import kotlinx.datetime.LocalDate
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+
+// @Serializable makes the compiler generate the JSON reading/writing code for a class;
+// @SerialName maps a Kotlin property to the database's snake_case column name.
+
+@Serializable
+enum class TripRole {
+    @SerialName("owner") Owner,
+    @SerialName("editor") Editor,
+    @SerialName("viewer") Viewer;
+
+    val canEdit get() = this != Viewer
+}
+
+@Serializable
+data class Profile(@SerialName("display_name") val displayName: String)
+
+@Serializable
+data class Member(
+    @SerialName("user_id") val userId: String,
+    val role: TripRole,
+    val profile: Profile,
+)
+
+@Serializable
+data class Region(val label: String)
+
+@Serializable
+data class Trip(
+    val id: String,
+    val name: String,
+    @SerialName("start_date") val startDate: LocalDate,
+    @SerialName("end_date") val endDate: LocalDate,
+    @SerialName("trip_regions") val regions: List<Region> = emptyList(),
+    @SerialName("trip_members") val members: List<Member> = emptyList(),
+) {
+    val myRole: TripRole? get() = members.firstOrNull { it.userId == myUserId }?.role
+}
+
+/** Everything the app asks the backend about trips. All calls need a signed-in user. */
+object Trips {
+    // "trip_regions(label)" pulls each trip's regions along in the same request.
+    private const val SUMMARY = "id,name,start_date,end_date,trip_regions(label)"
+    private const val DETAIL = "$SUMMARY,trip_members(user_id,role,profile:profiles(display_name))"
+
+    /** Trips the user is a member of; the server's access rules do the filtering. */
+    suspend fun mine(): List<Trip> =
+        supabase.from("trips").select(Columns.raw(SUMMARY)) { order("start_date", Order.DESCENDING) }.decodeList()
+
+    suspend fun byId(id: String): Trip =
+        supabase.from("trips").select(Columns.raw(DETAIL)) { filter { eq("id", id) } }.decodeSingle()
+
+    /** Creates the trip with the caller as owner and returns its id. */
+    suspend fun create(name: String, start: LocalDate, end: LocalDate, regions: List<Place>): String =
+        supabase.postgrest.rpc("create_trip", buildJsonObject {
+            put("p_name", name)
+            put("p_start_date", start.toString())
+            put("p_end_date", end.toString())
+            putJsonArray("p_regions") {
+                for (place in regions) addJsonObject {
+                    put("label", place.label.take(120)) // the column's limit
+                    put("source", "place")
+                    put("geometry", place.geometry)
+                }
+            }
+        }).decodeAs()
+
+    /** Returns a fresh invite token. The server keeps only its hash, so it cannot be shown again. */
+    suspend fun createInvite(tripId: String, role: TripRole): String =
+        supabase.postgrest.rpc("create_invite", buildJsonObject {
+            put("p_trip", tripId)
+            put("p_role", role.name.lowercase())
+        }).decodeAs()
+
+    /** Redeems an invite token and returns the id of the trip it belongs to. */
+    suspend fun join(token: String): String =
+        supabase.postgrest.rpc("join_trip", buildJsonObject { put("p_token", token) }).decodeAs()
+
+    suspend fun leave(tripId: String) {
+        val me = myUserId ?: return
+        supabase.from("trip_members").delete { filter { eq("trip_id", tripId); eq("user_id", me) } }
+    }
+
+    suspend fun delete(tripId: String) {
+        supabase.from("trips").delete { filter { eq("id", tripId) } }
+    }
+}
+
+/** What an invite looks like outside the app; the QR code encodes the same text. */
+fun inviteLink(token: String) = "postmarked://join/$token"
+
+/** Accepts either a full invite link or the bare code. */
+fun tokenFromInvite(linkOrCode: String) = linkOrCode.trim().substringAfterLast('/')

@@ -2,19 +2,18 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: Phase 0 (GPS import check)
+## Status: MVP milestone 1 (accounts, trips, invites)
 
-The app is currently one diagnostic screen. It scans the newest 150 photos and 150 videos on the
-phone and reports how many still carry GPS, which is the thing the whole route feature depends on.
+Sign in, create a trip (name, dates, one or more regions found by place search), invite people
+by QR code or link as editor or viewer, join, leave, delete. No photos yet; import is next.
 
 ## Layout
 
-| Module | What lives there |
+| Path | What lives there |
 |---|---|
-| `core/domain` | Pure Kotlin logic and its unit tests (geo math so far). No Android code. |
-| `composeApp` | Shared Compose UI. |
-| `androidApp` | Android entry point: Activity, manifest, camera-roll access. |
-
+| `core/domain` | Pure Kotlin logic and its unit tests (geo math, place-search parsing). No Android code. |
+| `composeApp` | Shared app: `data/` talks to Supabase, `ui/` holds the Compose screens. |
+| `androidApp` | Android entry point: Activity, manifest, share sheet, QR scanner. |
 | `supabase/migrations` | Database schema and access rules, applied to the Supabase project in filename order. |
 | `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
 
@@ -25,18 +24,24 @@ Needs JDK 21 and the Android SDK (`ANDROID_HOME` set, or `sdk.dir=...` in `local
 ```
 ./gradlew :core:domain:jvmTest          # unit tests
 ./gradlew :androidApp:assembleDebug     # APK in androidApp/build/outputs/apk/debug/
+./supabase/tests/run.sh                 # database access-rule tests
 ```
 
 No Android Studio? Every push builds the APK in GitHub Actions; download `postmarked-debug-apk`
 from the run's page and open it on the phone. Each CI build is signed with a fresh debug key, so
 uninstall the previous build before installing a new one.
 
-## Running the GPS check
+## Supabase project setup
 
-1. Install the APK and open Postmarked.
-2. Tap **Scan camera roll** and choose **Allow all** when Android asks for photo access.
-3. Note the three lines at the top (device, library access, media location) and the two
-   "GPS on X of Y" totals.
+1. Run each file in `supabase/migrations` in the project's SQL editor, oldest first.
+2. Authentication → Sign In / Providers → Email: turn **Confirm email** off. The app signs in
+   with email + password, and Supabase's built-in mailer is too limited to confirm friends' addresses.
 
-Photos saved from chat apps and screenshots never have GPS; photos from the phone's own camera
-should, if location tagging is on in the camera app.
+The project URL and publishable key live in `composeApp/.../data/Backend.kt`.
+
+## Earlier: GPS import check
+
+Phase 0 was a diagnostic screen proving the app can read GPS from camera-roll photos and videos
+(confirmed on a Samsung running Android 17, once the camera's "Location tags" setting is on).
+It needs `ACCESS_MEDIA_LOCATION` plus `MediaStore.setRequireOriginal`. The code is in git
+history (`MediaLibrary.kt`) and comes back as the importer in milestone 2.

@@ -8,6 +8,10 @@ kotlin {
     jvm()
 
     sourceSets {
+        commonMain.dependencies {
+            // `api` because GeoJSON shapes (JsonObject) appear in this module's public types.
+            api(libs.kotlinx.serialization.json)
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
