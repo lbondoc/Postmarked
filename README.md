@@ -15,6 +15,9 @@ phone and reports how many still carry GPS, which is the thing the whole route f
 | `composeApp` | Shared Compose UI. |
 | `androidApp` | Android entry point: Activity, manifest, camera-roll access. |
 
+| `supabase/migrations` | Database schema and access rules, applied to the Supabase project in filename order. |
+| `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
+
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME` set, or `sdk.dir=...` in `local.properties`).
