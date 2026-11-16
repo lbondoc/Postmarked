@@ -1,0 +1,28 @@
+[versions]
+# Kotlin 2.4.21 supports Gradle <= 9.7.0 and AGP <= 9.3.1; bump these three together.
+kotlin = "2.4.21"
+agp = "9.3.1"
+composeMultiplatform = "1.12.2"
+composeMaterial3 = "1.9.0"
+activityCompose = "1.13.0"
+exifinterface = "1.4.2"
+# compileSdk only picks which APIs the code may call (Compose 1.12 needs 37);
+# targetSdk is what opts the app into newer runtime behaviour.
+android-compileSdk = "37"
+android-targetSdk = "36"
+android-minSdk = "26"
+
+[libraries]
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "composeMaterial3" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
+
+[plugins]
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
