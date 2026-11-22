@@ -17,9 +17,9 @@ page shows a grid of everything uploaded. The same file added by two people is s
 
 | Path | What lives there |
 |---|---|
-| `core/domain` | Pure Kotlin logic and its unit tests (geo math, place-search parsing). No Android code. |
+| `core/domain` | Pure Kotlin logic and its unit tests: geo math, place search, trip date/location matching, EXIF dates. No Android code. |
 | `composeApp` | Shared app: `data/` talks to Supabase, `ui/` holds the Compose screens. |
-| `androidApp` | Android entry point: Activity, manifest, share sheet, QR scanner. |
+| `androidApp` | Android entry point: Activity, manifest, share sheet, QR scanner, camera-roll reading, background uploads. |
 | `supabase/migrations` | Database schema and access rules, applied to the Supabase project in filename order. |
 | `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
 
