@@ -2,10 +2,16 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: MVP milestone 1 (accounts, trips, invites)
+## Status: MVP milestone 2 (photo import and upload)
 
-Sign in, create a trip (name, dates, one or more regions found by place search), invite people
-by QR code or link as editor or viewer, join, leave, delete. No photos yet; import is next.
+Milestone 1: sign in, create a trip (name, dates, one or more regions found by place search),
+invite people by QR code or link as editor or viewer, join, leave, delete.
+
+Milestone 2: "Add photos and videos" on a trip scans the camera roll around the trip's dates,
+sorts items into "taken on this trip" (pre-ticked) and ones to check (no location, somewhere
+else, other days), and queues the chosen ones. They upload in the background, on Wi-Fi unless
+mobile data is allowed, and continue after the app is closed or the phone restarts. The trip
+page shows a grid of everything uploaded. The same file added by two people is stored once.
 
 ## Layout
 
@@ -33,15 +39,25 @@ uninstall the previous build before installing a new one.
 
 ## Supabase project setup
 
-1. Run each file in `supabase/migrations` in the project's SQL editor, oldest first.
+1. Run each file in `supabase/migrations` in the project's SQL editor, oldest first. Each runs once;
+   running one twice fails with "already exists" and changes nothing.
 2. Authentication → Sign In / Providers → Email: turn **Confirm email** off. The app signs in
    with email + password, and Supabase's built-in mailer is too limited to confirm friends' addresses.
 
 The project URL and publishable key live in `composeApp/.../data/Backend.kt`.
 
-## Earlier: GPS import check
+## What is stored
 
-Phase 0 was a diagnostic screen proving the app can read GPS from camera-roll photos and videos
-(confirmed on a Samsung running Android 17, once the camera's "Location tags" setting is on).
-It needs `ACCESS_MEDIA_LOCATION` plus `MediaStore.setRequireOriginal`. The code is in git
-history (`MediaLibrary.kt`) and comes back as the importer in milestone 2.
+Each item gets a folder `<trip id>/<media id>/` in the private Storage bucket `media`:
+
+| Photo | Video |
+|---|---|
+| `original`: the camera's file, GPS included | `video.mp4`: H.264, at most 1080p, about 45 MB a minute |
+| `display.jpg`: 2048 px | `poster.jpg`: a frame about a second in |
+| `thumb.jpg`: 400 px | `thumb.jpg`: 400 px |
+
+Original videos stay on the phone. Supabase's free plan refuses files over 50 MB, so videos over
+about a minute fail with a message; raise the file size limit in Storage settings on a paid plan.
+
+Reading GPS from the camera roll needs `ACCESS_MEDIA_LOCATION` plus `MediaStore.setRequireOriginal`
+(Phase 0 proved this on a Samsung running Android 17, once the camera's "Location tags" setting is on).

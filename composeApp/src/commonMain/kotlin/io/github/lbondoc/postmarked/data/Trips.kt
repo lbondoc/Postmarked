@@ -5,9 +5,11 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.lbondoc.postmarked.domain.geo.Place
+import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -94,10 +96,33 @@ object Trips {
         supabase.from("trip_members").delete { filter { eq("trip_id", tripId); eq("user_id", me) } }
     }
 
+    /** Files first: once the trip row is gone, nobody is allowed to see or remove them. */
     suspend fun delete(tripId: String) {
+        // shortcut: files whose upload is still in flight on someone's phone are missed, add a server-side sweep before launch.
+        Media.deleteAllFiles(tripId)
         supabase.from("trips").delete { filter { eq("id", tripId) } }
     }
+
+    /** The trip's dates and area, which decide which camera-roll items belong to it. */
+    suspend fun bounds(tripId: String): TripBounds {
+        val row = supabase.from("trips").select(Columns.raw("start_date,end_date,trip_regions(geojson)")) {
+            filter { eq("id", tripId) }
+        }.decodeSingle<BoundsRow>()
+        return TripBounds(row.startDate, row.endDate, TripArea(row.regions.map { it.geojson }))
+    }
 }
+
+class TripBounds(val start: LocalDate, val end: LocalDate, val area: TripArea)
+
+@Serializable
+private class BoundsRow(
+    @SerialName("start_date") val startDate: LocalDate,
+    @SerialName("end_date") val endDate: LocalDate,
+    @SerialName("trip_regions") val regions: List<RegionShape>,
+)
+
+@Serializable
+private class RegionShape(val geojson: JsonObject)
 
 /** What an invite looks like outside the app; the QR code encodes the same text. */
 fun inviteLink(token: String) = "postmarked://join/$token"

@@ -2,8 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Read the camera roll. Android 13+ splits this into images and video. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Android 14+: lets people share only some photos instead of all or nothing. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Without this Android blanks out GPS in every photo and video we read. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <application
+        android:name=".PostmarkedApp"
         android:allowBackup="false"
         android:label="Postmarked"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">

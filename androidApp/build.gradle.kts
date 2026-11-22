@@ -2,6 +2,7 @@ plugins {
     // No Kotlin plugin here: Android Gradle Plugin 9 compiles Kotlin itself.
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization) // the upload queue is saved as JSON
 }
 
 android {
@@ -13,8 +14,8 @@ android {
         applicationId = "io.github.lbondoc.postmarked"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.2.0"
     }
 }
 
@@ -23,4 +24,12 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.runtime)
     implementation(libs.play.services.code.scanner)
+    // The scanner pulls in Fragment 1.0, whose old result handling breaks permission requests; this replaces it.
+    implementation(libs.androidx.fragment)
+    implementation(libs.androidx.exifinterface)
+    implementation(libs.androidx.work)
+    implementation(libs.media3.transformer)
+    implementation(libs.media3.effect)
+    implementation(libs.media3.common)
+    implementation(libs.coil.video) // video thumbnails in the import grid
 }

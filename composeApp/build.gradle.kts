@@ -15,18 +15,21 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            // `api` re-exports the domain types (LatLng etc.) to modules that depend on this one.
+            // `api` re-exports these to the app modules: they use the domain types,
+            // and the Android uploader talks to Supabase Storage directly.
             api(projects.core.domain)
+            api(libs.supabase.auth)
+            api(libs.supabase.postgrest)
+            api(libs.supabase.storage)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
             implementation(libs.compose.material3)
             implementation(libs.navigation.compose)
             implementation(libs.lifecycle.viewmodel.compose)
-            implementation(libs.supabase.auth)
-            implementation(libs.supabase.postgrest)
-            implementation(libs.kotlinx.datetime)
             implementation(libs.qrose)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
         }
         androidMain.dependencies {
             // The HTTP engine is per platform; iOS will get its own (Darwin) later.

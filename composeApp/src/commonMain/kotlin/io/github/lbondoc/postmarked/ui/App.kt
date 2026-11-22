@@ -19,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.lbondoc.postmarked.data.CameraRoll
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.supabase
 import io.github.lbondoc.postmarked.data.userMessage
@@ -36,19 +37,21 @@ import kotlinx.serialization.Serializable
 @Serializable private object TripListRoute
 @Serializable private object NewTripRoute
 @Serializable private data class TripRoute(val id: String)
+@Serializable private data class ImportRoute(val tripId: String)
 
 /**
- * The whole app. The two parameters are things only the platform can do, handed in by the
- * Android Activity (and later by the iOS app): open the share sheet, and scan a QR code.
+ * The whole app. The parameters are things only the platform can do, handed in by the
+ * Android Activity (and later by the iOS app): open the share sheet, scan a QR code, and
+ * read and upload the camera roll.
  */
 @Composable
-fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?) {
+fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll) {
     MaterialTheme {
         // collectAsState turns a Flow into Compose state: the UI redraws on every new value.
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr)
+            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll)
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }
@@ -56,7 +59,7 @@ fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?) {
 }
 
 @Composable
-private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?) {
+private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll) {
     val nav = rememberNavController()
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
@@ -74,7 +77,17 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?) {
             )
         }
         composable<TripRoute> { entry ->
-            TripScreen(tripId = entry.toRoute<TripRoute>().id, onBack = { nav.popBackStack() }, onShare = onShare)
+            val tripId = entry.toRoute<TripRoute>().id
+            TripScreen(
+                tripId = tripId,
+                cameraRoll = cameraRoll,
+                onBack = { nav.popBackStack() },
+                onAddMedia = { nav.navigate(ImportRoute(tripId)) },
+                onShare = onShare,
+            )
+        }
+        composable<ImportRoute> { entry ->
+            ImportScreen(tripId = entry.toRoute<ImportRoute>().tripId, cameraRoll = cameraRoll, onDone = { nav.popBackStack() })
         }
     }
 }

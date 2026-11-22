@@ -19,7 +19,8 @@ class MainActivity : ComponentActivity() {
         // savedInstanceState is null only on a fresh start, so rotating the screen
         // does not redeem the same invite link a second time.
         if (savedInstanceState == null) readInvite(intent)
-        setContent { App(onShare = ::share, scanQr = ::scanQr) }
+        val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
+        setContent { App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll) }
     }
 
     /** Called instead of onCreate when an invite link is tapped while the app is already open. */

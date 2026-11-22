@@ -11,6 +11,7 @@ kotlin {
         commonMain.dependencies {
             // `api` because GeoJSON shapes (JsonObject) appear in this module's public types.
             api(libs.kotlinx.serialization.json)
+            api(libs.kotlinx.datetime) // LocalDate in the trip matcher
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

@@ -13,11 +13,17 @@ serializationJson = "1.13.0"
 datetime = "0.8.0"
 qrose = "1.3.1"
 codeScanner = "16.1.0"
+coil = "3.6.3"
+work = "2.12.0"
+media3 = "1.11.1"
+exifinterface = "1.4.2"
+fragment = "1.9.1"
 # compileSdk only picks which APIs the code may call (Compose 1.12 needs 37);
 # targetSdk is what opts the app into newer runtime behaviour.
 android-compileSdk = "37"
 android-targetSdk = "36"
-android-minSdk = "26"
+# Android 10: the first version that can hand over a photo's original file with its GPS.
+android-minSdk = "29"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
@@ -27,13 +33,23 @@ compose-material3 = { module = "org.jetbrains.compose.material3:material3", vers
 navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
 lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
+androidx-work = { module = "androidx.work:work-runtime", version.ref = "work" }
+media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
+media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
+media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt", version.ref = "supabase" }
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
+supabase-storage = { module = "io.github.jan-tennert.supabase:storage-kt", version.ref = "supabase" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
 qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
+coil-video = { module = "io.coil-kt.coil3:coil-video", version.ref = "coil" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
