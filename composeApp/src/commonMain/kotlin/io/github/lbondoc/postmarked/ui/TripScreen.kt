@@ -74,7 +74,9 @@ import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.PhotoSaver
 import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.LastOpened
 import io.github.lbondoc.postmarked.data.TripCache
+import io.github.lbondoc.postmarked.data.newFromFriends
 import io.github.lbondoc.postmarked.data.TripSnapshot
 import io.github.lbondoc.postmarked.data.isOffline
 import io.github.lbondoc.postmarked.data.loadOrCached
@@ -110,6 +112,15 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     var offline by mutableStateOf(false)
         private set
     private val cache = TripCache.shared
+
+    // When this trip was last opened before now. Read once, then the trip counts as opened, so the number
+    // shown is what's new since last time and it starts again from zero.
+    private val previousOpen = LastOpened(cache).let { opened ->
+        opened.of(tripId).also { opened.opened(tripId, Clock.System.now().toEpochMilliseconds()) }
+    }
+
+    /** "N new from friends": media others added since you last opened this trip. */
+    val newFromFriends: Int get() = newFromFriends(media, previousOpen, myUserId)
 
     fun load() = run {
         val loaded = loadOrCached(
@@ -268,6 +279,9 @@ fun TripScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (vm.offline) OfflineBanner()
+                    vm.newFromFriends.takeIf { it > 0 }?.let { n ->
+                        Text("$n new from friends since you last looked", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (trip == null) {
                         if (vm.error == null) CircularProgressIndicator()

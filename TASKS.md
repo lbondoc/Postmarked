@@ -107,7 +107,7 @@ must pass as well.
   (default on for editors during the trip), and a "Review" notification that opens the queue.
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: with live on, take a photo inside the trip's
   area and dates, and it appears in the queue within a minute
-- [ ] **L3 "N new from friends".** Store each trip's last-opened time on the device and show the count on the
+- [x] **L3 "N new from friends".** Store each trip's last-opened time on the device and show the count on the
   trip list and trip page.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*NewSinceTest*'` (your own uploads don't count, and
   the count resets on opening the trip)

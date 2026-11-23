@@ -180,6 +180,8 @@ data class TripMedia(
     val palette: List<PaletteEntry>? = null,
     /** Who took it. */
     val profile: Profile? = null,
+    /** When it was uploaded, for "N new from friends". */
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
     val swatches: List<Swatch> get() = palette.orEmpty().map { it.toSwatch() }
 
@@ -226,11 +228,21 @@ object Media {
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
             // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,profile:profiles!contributor(display_name)")
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
         }.decodeList()
+
+    /** How many items others added to [tripId] after [sinceMs], for the trip list (ids only, nothing else). */
+    suspend fun newFromFriendsCount(tripId: String, sinceMs: Long, me: String?): Int =
+        supabase.from("media").select(Columns.list("id")) {
+            filter {
+                eq("trip_id", tripId)
+                gt("created_at", Instant.fromEpochMilliseconds(sinceMs).toString())
+                me?.let { neq("contributor", it) }
+            }
+        }.decodeList<JsonObject>().size
 
     /** True when this exact file is already in the trip, from anyone. */
     suspend fun exists(tripId: String, sha256: String): Boolean =

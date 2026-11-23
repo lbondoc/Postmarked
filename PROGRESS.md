@@ -918,6 +918,39 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Content-URI triggers are best effort under Doze, so on a phone left idle a while, new photos may wait until
     it wakes.
 
+## L3 "N new from friends"
+- Changes:
+  - `data/NewSince.kt` (new):
+    - `newFromFriends(media, lastOpenedMs, me)` counts items whose `created_at` (upload time, not capture
+      time) is after the last open and whose contributor isn't you. A trip never opened on this device counts
+      none, because there's no baseline.
+    - `LastOpened`, per-trip times in the device store from O1 ("stored on the device", forgotten on
+      sign-out).
+  - `data/Media.kt`: `TripMedia.createdAt` (selected with the media rows, so offline snapshots have it too), and
+    `newFromFriendsCount(trip, since, me)` for the trip list. It fetches only the ids of the new rows, so the
+    list doesn't download every trip's media.
+  - `ui/TripScreen.kt`: the view model reads the previous open time once, then marks the trip opened now. The
+    page shows "N new from friends since you last looked", and the next visit starts from zero, which is the
+    task's "resets on opening the trip".
+  - `ui/TripListScreen.kt`: "N new" as each card's trailing text, online only.
+  - `NewSinceTest.kt` (new), the task's check:
+    - Your own uploads don't count (2 for "me", 3 for someone else).
+    - Opening the trip resets the count to 0. Postgres's `+00:00` microsecond timestamps parse.
+    - A never-opened trip counts nothing.
+- Approach: device-local times, as SPEC says. I considered a `last_seen` table on the server and rejected
+  it: SPEC says the time is stored on the device, and the server would need another migration and RLS for no
+  gain this round.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*NewSinceTest*'` → `tests="3" skipped="0"
+    failures="0" errors="0"`.
+  - All targets compile.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - The trip list makes one small request per opened trip. That's fine for a handful of trips; a single
+    grouped database function would scale better.
+  - **Needs manual check:** with two accounts, add a photo from one and see "1 new" on the other's trip list.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).
