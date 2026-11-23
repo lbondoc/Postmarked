@@ -869,6 +869,55 @@ BLOCKED, and nothing gets deployed from this sandbox.
     `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
 - Follow-ups: none for L1. The worker, the switch and the notification are L2.
 
+## L2 Live mode worker and switch
+- Changes:
+  - `core/domain/.../trip/LiveCandidates.kt`: `liveModeOn(choice, canEdit, today, start, end)`, SPEC §5's
+    default ("on by default for editors while today is within the trip's dates"), with the person's own choice
+    taking precedence. `LiveCandidatesTest` gets a case for it covering editor during the trip, viewer, after
+    the trip, off by hand and on by hand.
+  - `data/Media.kt`: a `LiveMode` interface (choices, watch, set) and `CameraRoll.live`, null by default. The
+    web and iOS have no live mode (SPEC: "No live mode … on web"), so the switch simply doesn't appear there.
+  - `data/Backend.kt` + `ui/App.kt`: `pendingTrip`, like `pendingInvite`. The signed-in app navigates to that
+    trip when it's set, which is how the notification "opens the queue": the queue list (F9) is on the trip page.
+  - `ui/TripScreen.kt`: `LiveSwitch` ("Live: add new photos automatically", the whole row toggles), shown to
+    owners and editors where live mode exists. It also registers the trip with the background job.
+  - `androidApp/.../LiveMode.kt` (new):
+    - `LiveTrips`: watched trips in SharedPreferences with name, dates, role, choice and a "since" mark.
+      When a trip is first seen or switched on, the mark is now, so the whole camera roll is never imported.
+    - `AndroidLiveMode`.
+    - `LiveWork.schedule`: a WorkManager job with content-URI triggers on the Images and Video collections,
+      a 5 s update delay and a 30 s max delay ("within a minute"). It's re-armed after each run, because a
+      content trigger fires only once. It isn't scheduled when no trip is live.
+    - `LiveWorker`: for each live trip, it queries MediaStore for items added since the mark, reads their
+      time and place with the existing `readDeviceMedia`, and asks L1's `liveCandidates` which are on the
+      trip. Those are queued with the existing `UploadQueue.add`, which respects the Wi-Fi-only setting.
+      It posts "Added N photos to <trip> · Review" and moves the mark forward.
+    - The bounds come from `Trips.bounds`, which is cached (O3), so matching works without signal.
+  - `AndroidCameraRoll.kt`: `live = AndroidLiveMode(...)`.
+  - `MainActivity.kt`: reads the notification's `open_trip` extra into `pendingTrip`.
+  - `PostmarkedApp.kt`: arms the job at start, so it continues after a restart, and clears live trips on
+    sign-out.
+- Approach:
+  - Live mode is opt-out via the switch, and only `TripMatch.Both` items are added (L1). I considered a
+    periodic job (every 15 min) instead of content triggers and rejected it: it misses the "within a minute"
+    check and wakes the phone for nothing.
+  - The "since" mark uses MediaStore's DATE_ADDED, not DATE_TAKEN. A photo shared into the camera roll later,
+    with an old capture date, is then still "new" for the mark, and the date filter in `liveCandidates`
+    decides.
+- Verification:
+  - Task check `./gradlew :androidApp:assembleDebug` → `BUILD SUCCESSFUL`.
+  - `LiveCandidatesTest` → `tests="6" … failures="0"`.
+  - All targets compile; the web and iOS have no switch (`live == null`).
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - **Needs manual check (the task's own):** on the phone, with live on, take a photo inside the trip's area
+    and dates. It should be in the queue within a minute and show the notification, and tapping "Review"
+    should open the trip page.
+  - Photo access must already have been granted (through the import screen). Live mode doesn't ask by itself.
+  - Content-URI triggers are best effort under Doze, so on a phone left idle a while, new photos may wait until
+    it wakes.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

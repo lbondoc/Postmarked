@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import io.github.lbondoc.postmarked.data.pendingInvite
+import io.github.lbondoc.postmarked.data.pendingTrip
 import io.github.lbondoc.postmarked.ui.App
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -18,7 +19,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // savedInstanceState is null only on a fresh start, so rotating the screen
         // does not redeem the same invite link a second time.
-        if (savedInstanceState == null) readInvite(intent)
+        if (savedInstanceState == null) { readInvite(intent); readOpenTrip(intent) }
         val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
         val exporter = AndroidExporter(this)
         val photoSaver = AndroidPhotoSaver(this)
@@ -33,6 +34,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         readInvite(intent)
+        readOpenTrip(intent)
+    }
+
+    /** A tapped live-mode notification: open that trip's page. */
+    private fun readOpenTrip(intent: Intent?) {
+        intent?.getStringExtra(OPEN_TRIP)?.let { pendingTrip.value = it }
+    }
+
+    companion object {
+        const val OPEN_TRIP = "open_trip"
     }
 
     /** postmarked://join/<token>, as declared in the manifest. */

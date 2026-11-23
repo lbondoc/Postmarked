@@ -1,5 +1,10 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.todayIn
+import kotlinx.datetime.TimeZone
+import kotlin.time.Clock
+import io.github.lbondoc.postmarked.domain.trip.liveModeOn
+import io.github.lbondoc.postmarked.data.LiveMode
 import kotlinx.datetime.format
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Surface
@@ -270,6 +275,9 @@ fun TripScreen(
                     }
                     look?.let { AlbumHeader(trip, it) } ?: Text(trip.dates, style = MaterialTheme.typography.titleMedium)
                     trip.regions.forEach { Text(it.label, style = MaterialTheme.typography.bodySmall) }
+                    cameraRoll.live?.let { live ->
+                        if (trip.myRole?.canEdit == true) LiveSwitch(trip, live)
+                    }
                     if (trip.myRole?.canEdit == true) ThemePicker(trip, tripPalette(vm.media)) { id, accent -> vm.setTheme(id, accent) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -446,6 +454,29 @@ fun TripScreen(
 
 /** The trip's main colours, from every photo's palette: its strongest hues, then at most one neutral. */
 fun tripPalette(media: List<TripMedia>): List<Swatch> = tripHues(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+
+/** "Live: add new photos automatically" (Android): on by default for editors while the trip is on. */
+@Composable
+private fun LiveSwitch(trip: Trip, live: LiveMode) {
+    LaunchedEffect(trip) { live.watch(trip) }
+    val choices by live.choices.collectAsState()
+    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    val on = liveModeOn(choices[trip.id], trip.myRole?.canEdit == true, today, trip.startDate, trip.endDate)
+    Row(
+        Modifier.toggleable(on, role = Role.Switch) { live.set(trip, it) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Switch(checked = on, onCheckedChange = null) // the whole row is the switch
+        Column {
+            Text("Live: add new photos automatically")
+            Text(
+                "New photos taken in the trip's places and dates are added in the background; you get a notification to review them.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
 
 /** What can be done with the selected tiles, and how saving them is going. Delete only covers your own. */
 @Composable

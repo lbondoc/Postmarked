@@ -103,7 +103,7 @@ must pass as well.
   trip matcher marks as taken on this trip.
   Check: `./gradlew :core:domain:jvmTest --tests '*LiveCandidatesTest*'` (it skips items outside the dates or area,
   items already queued, and items with no location)
-- [ ] **L2 Live mode worker and switch.** A WorkManager job with a content-URI trigger, the per-trip switch
+- [x] **L2 Live mode worker and switch.** A WorkManager job with a content-URI trigger, the per-trip switch
   (default on for editors during the trip), and a "Review" notification that opens the queue.
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: with live on, take a photo inside the trip's
   area and dates, and it appears in the queue within a minute

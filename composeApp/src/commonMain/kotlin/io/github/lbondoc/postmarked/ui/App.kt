@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.pendingTrip
 import io.github.lbondoc.postmarked.data.Outbox
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
@@ -105,6 +106,13 @@ private fun SignedIn(
     photoSaver: PhotoSaver,
 ) {
     val nav = rememberNavController()
+    val openTrip by pendingTrip.collectAsState()
+    LaunchedEffect(openTrip) {
+        openTrip?.let {
+            pendingTrip.value = null
+            nav.navigate(TripRoute(it))
+        }
+    }
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
             TripListScreen(

@@ -119,6 +119,17 @@ fun cancelUploads(queue: List<QueuedUpload>, ids: Set<String>): Pair<List<Queued
 
 class ScanResult(val items: List<DeviceMedia>, val locationAllowed: Boolean)
 
+/** The per-trip "Live: add new photos automatically" switch and the background job behind it. */
+interface LiveMode {
+    /** The person's own choice per trip id. A trip with none follows [io.github.lbondoc.postmarked.domain.trip.liveModeOn]'s default. */
+    val choices: StateFlow<Map<String, Boolean>>
+
+    /** Remembers [trip] (its dates and your role) for the background job, and starts the job if live is on. */
+    fun watch(trip: Trip)
+
+    fun set(trip: Trip, on: Boolean)
+}
+
 /** What only the platform can do with the phone's photos: Android today, iOS later. */
 interface CameraRoll {
     /** Asks for photo access if it is missing. False when the user refuses. */
@@ -145,6 +156,9 @@ interface CameraRoll {
      * are deleted. Finished items stay.
      */
     fun cancel(mediaIds: Set<String>)
+
+    /** Live mode (SPEC §5): new photos taken on a trip are queued by themselves. Null where there is none (web, iOS). */
+    val live: LiveMode? get() = null
 
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri

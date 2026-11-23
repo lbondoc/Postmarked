@@ -25,12 +25,14 @@ class PostmarkedApp : Application() {
         UploadQueue.init(this)
         TripCache.store = AndroidTripCacheStore(this)
         Outbox.onQueued = { OutboxWorker.start(this) }
+        LiveWork.schedule(this) // live trips keep watching the camera roll after a restart
         MainScope().launch {
             supabase.auth.sessionStatus.collect { status ->
                 if (status is SessionStatus.NotAuthenticated && status.isSignOut) {
                     UploadQueue.clear(this@PostmarkedApp)
                     TripCache.store.clear()
                     Outbox.forget()
+                    AndroidLiveMode(this@PostmarkedApp).clear()
                 }
             }
         }

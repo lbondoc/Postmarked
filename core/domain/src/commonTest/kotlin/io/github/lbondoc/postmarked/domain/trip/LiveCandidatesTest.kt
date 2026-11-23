@@ -53,4 +53,14 @@ class LiveCandidatesTest {
     fun onlyLooksAtWhatWasAddedSinceTheLastRun() {
         assertEquals(listOf("new"), candidates(listOf(item("old", addedMs = 1_000), item("new", addedMs = 1_001))))
     }
+
+    @Test
+    fun liveModeIsOnByDefaultForEditorsDuringTheTrip() {
+        val during = LocalDate(2026, 10, 4)
+        assertEquals(true, liveModeOn(null, canEdit = true, today = during, start = start, end = end))
+        assertEquals(false, liveModeOn(null, canEdit = false, today = during, start = start, end = end), "viewers can't add")
+        assertEquals(false, liveModeOn(null, canEdit = true, today = LocalDate(2026, 10, 6), start = start, end = end), "after the trip")
+        assertEquals(false, liveModeOn(false, canEdit = true, today = during, start = start, end = end), "turned off by hand")
+        assertEquals(true, liveModeOn(true, canEdit = true, today = LocalDate(2026, 9, 1), start = start, end = end), "turned on by hand")
+    }
 }

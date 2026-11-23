@@ -25,3 +25,10 @@ fun liveCandidates(
         item.location != null &&
         matchTrip(item.takenOn, item.location, start, end, area) == TripMatch.Both
 }
+
+/**
+ * Whether live mode is on for a trip: the person's own [choice] if they made one, else on for those who can add
+ * photos ([canEdit]) while [today] is within the trip's dates, and off otherwise (SPEC §5).
+ */
+fun liveModeOn(choice: Boolean?, canEdit: Boolean, today: LocalDate, start: LocalDate, end: LocalDate): Boolean =
+    choice ?: (canEdit && today in start..end)
