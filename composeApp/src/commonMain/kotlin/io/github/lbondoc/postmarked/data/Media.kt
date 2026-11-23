@@ -166,7 +166,8 @@ object Media {
     suspend fun ofTrip(tripId: String): List<TripMedia> =
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,profile:profiles(display_name)")
+            // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
@@ -233,7 +234,7 @@ object Media {
     }
 
     suspend fun comments(mediaId: String): List<Comment> =
-        supabase.from("comments").select(Columns.raw("id,author,body,profile:profiles(display_name)")) {
+        supabase.from("comments").select(Columns.raw("id,author,body,profile:profiles!author(display_name)")) {
             filter { eq("media_id", mediaId) }
             order("created_at", Order.ASCENDING)
         }.decodeList()
