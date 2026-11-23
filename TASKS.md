@@ -52,7 +52,7 @@ must pass as well.
   `tripPalette`, and delete `mergePalettes` if unused.
   Check: `./gradlew :core:domain:jvmTest --tests '*TripHuesTest*'`. The test trip is 8 dark road photos, 1 sunset
   and 1 sky. The result must include orange and blue, have no swatch with $L < 0.3$, and have at most one neutral.
-- [ ] **F2 "More colours" wheel.** Add a fixed row of 12 named colours with counts, greyed out at 0, in the
+- [x] **F2 "More colours" wheel.** Add a fixed row of 12 named colours with counts, greyed out at 0, in the
   gallery filter and in the summary's hand-picked colours.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` (a new case: a wheel colour with
   matches filters to exactly those photos, and one with no matches has count 0)

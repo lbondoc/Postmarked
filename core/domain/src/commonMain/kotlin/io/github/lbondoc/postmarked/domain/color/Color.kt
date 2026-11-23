@@ -259,6 +259,17 @@ fun readableOn(background: Int, preferred: List<Int> = emptyList()): Int =
     (preferred + listOf(0x1F1B16, 0xFFFFFF)).firstOrNull { contrast(it, background) >= 4.5 }
         ?: listOf(0x000000, 0xFFFFFF).maxBy { contrast(it, background) }
 
+/**
+ * The fixed "More colours" row (SPEC §2), offered after the trip's own hues so any colour can be searched for:
+ * 10 hues 25 to 55 degrees apart in OKLab, vivid enough that [share] only matches real colour, plus white and
+ * black. Each is in sRGB gamut.
+ */
+val COLOUR_WHEEL: List<Pair<String, Int>> = listOf(
+    "Red" to 0xD6483E, "Orange" to 0xEB883B, "Yellow" to 0xEFD956, "Lime" to 0xA4D854,
+    "Green" to 0x409D48, "Teal" to 0x26998E, "Cyan" to 0x51CADE, "Blue" to 0x4278D2,
+    "Purple" to 0x8656B7, "Pink" to 0xE181B0, "White" to 0xF2F2F2, "Black" to 0x121212,
+)
+
 /** A plain name for a colour, for labels and screen readers: "Yellow", "Brown", "Grey". */
 fun colourName(c: Oklab): String {
     if (c.chroma < NEUTRAL_CHROMA) return when {

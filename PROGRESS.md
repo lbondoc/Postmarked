@@ -372,6 +372,35 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - **Needs manual check:** how the new palette looks on a real trip.
   - Decide whether to delete `mergePalettes` together with its test.
 
+## F2 "More colours" wheel
+- Changes:
+  - `core/domain/.../color/Color.kt`: `COLOUR_WHEEL`, the 12 named colours SPEC §2 lists (red, orange, yellow,
+    lime, green, teal, cyan, blue, purple, pink, white, black). The values were computed from OKLab at chosen
+    hues, checked to be inside sRGB gamut, and vivid ($C \ge 0.1$) so the existing `share()` rule ("at least
+    half as vivid") matches only real colour. It lives in the domain because both the gallery and summaries
+    use it.
+  - `ui/GalleryFilters.kt`: a "More colours" row after the trip's hues. Each swatch is counted by the existing
+    `countEach` (the same `share()` match the filter uses) and greyed out at 0. A selected swatch stays tappable
+    so it can be turned off. Active-filter chips show the wheel's own name: `colourName` would call Lime "Green"
+    and Cyan "Teal".
+  - `ui/SummaryScreens.kt` `ColourPanel` (the one-colour "chosen by hand" picker, used by the editor and the
+    guided first summary): the same row, counting matching photos with the panel's existing `share() ≥
+    MONOCHROME_SHARE` rule. It's greyed out at 0 because a one-colour summary from no photos is empty.
+  - `GalleryTest.kt`: the new case the task's check names. "Blue" filters to exactly the two bluish photos and
+    counts 2. Yellow and White each find exactly their photo. Purple and Black count 0. All 12 get a count.
+- Approach: the filter already stores colours as hex and matches them by family, so wheel colours reuse
+  `filterMedia` and `countEach` unchanged. Nothing new decides what "blue" means. I considered generating the
+  wheel from `colourName`'s hue bands at runtime and rejected it: fixed, reviewed values are easier to reason
+  about and can't drift out of gamut.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` → `tests="8" skipped="0"
+    failures="0" errors="0"`, 7 existing tests plus the new one.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check:** how the second row of stamps looks in the filter sheet and the summary
+  colour panel on a phone. There are no UI tests in this repo. A wheel colour picked in a summary is stored by
+  hex like any other, so saved summaries need no change.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

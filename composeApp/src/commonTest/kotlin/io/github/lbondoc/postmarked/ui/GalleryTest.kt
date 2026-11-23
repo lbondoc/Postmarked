@@ -4,6 +4,8 @@ import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.PaletteEntry
 import io.github.lbondoc.postmarked.data.Profile
 import io.github.lbondoc.postmarked.data.TripMedia
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
+import io.github.lbondoc.postmarked.domain.color.rgbToHex
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +95,25 @@ class GalleryTest {
         val all = listOf(yellowish, bluish, item("unknown", "2026-10-03T21:00:00Z"))
         assertEquals(listOf("sunflowers"), filterMedia(all, GalleryFilter(colours = setOf("#E0B020")), places).map { it.id })
         assertEquals(listOf("sunflowers", "ocean"), filterMedia(all, GalleryFilter(colours = setOf("#E0B020", "#3A7BC8")), places).map { it.id })
+    }
+
+    @Test
+    fun aWheelColourFiltersToExactlyItsPhotosAndAnUnusedOneCountsZero() {
+        val sunflowers = item("sunflowers", "2026-10-03T19:00:00Z").copy(palette = listOf(PaletteEntry("#F2C230", 0.7), PaletteEntry("#3F8F3A", 0.3)))
+        val ocean = item("ocean", "2026-10-03T20:00:00Z").copy(palette = listOf(PaletteEntry("#4A90D9", 0.9), PaletteEntry("#F4F4F4", 0.1)))
+        val snow = item("snow", "2026-10-03T21:00:00Z").copy(palette = listOf(PaletteEntry("#F4F4F4", 0.8), PaletteEntry("#4A90D9", 0.2)))
+        val all = listOf(sunflowers, ocean, snow, item("unknown", "2026-10-03T22:00:00Z"))
+        val wheel = COLOUR_WHEEL.associate { (name, rgb) -> name to rgbToHex(rgb) }
+        val counts = countEach(all, GalleryFilter(), places, wheel.values.toList()) { copy(colours = setOf(it)) }
+        val byName = wheel.mapValues { (_, hex) -> counts.getValue(hex) }
+
+        assertEquals(listOf("ocean", "snow"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("Blue"))), places).map { it.id })
+        assertEquals(2, byName["Blue"])
+        assertEquals(listOf("sunflowers"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("Yellow"))), places).map { it.id })
+        assertEquals(listOf("snow"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("White"))), places).map { it.id })
+        assertEquals(0, byName["Purple"]) // nothing purple in the trip: shown greyed out
+        assertEquals(0, byName["Black"])
+        assertEquals(12, byName.size)
     }
 
     @Test

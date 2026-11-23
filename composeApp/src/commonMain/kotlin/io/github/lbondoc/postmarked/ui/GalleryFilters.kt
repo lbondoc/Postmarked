@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.domain.color.Oklab
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
 import io.github.lbondoc.postmarked.domain.color.colourName
 import io.github.lbondoc.postmarked.domain.color.hexToRgb
 import io.github.lbondoc.postmarked.domain.color.rgbToHex
@@ -70,7 +71,10 @@ private fun personColour(people: List<Pair<String, String>>, id: String) =
 private fun daysOf(media: List<TripMedia>) = media.map { it.takenOn }.distinct().sorted()
 private fun dayLabel(tripStart: LocalDate, day: LocalDate) = "Day ${tripStart.daysUntil(day) + 1}"
 private fun placeLabel(name: String) = name.substringBefore(',')
-private fun colourLabel(hex: String) = colourName(Oklab.fromRgb(hexToRgb(hex)))
+private fun colourLabel(hex: String) = WHEEL.firstOrNull { it.second == hex }?.first ?: colourName(Oklab.fromRgb(hexToRgb(hex)))
+
+/** The "More colours" row as "#RRGGBB", the form filters store colours in. */
+internal val WHEEL = COLOUR_WHEEL.map { (name, rgb) -> name to rgbToHex(rgb) }
 
 /** One switched-on filter, as a chip under the Filter button. */
 private class ActiveFilter(val label: String, val dot: Color?, val remove: (GalleryFilter) -> GalleryFilter)
@@ -234,7 +238,7 @@ internal fun FilterSheet(
     // Counting reruns the filter once per choice: fine for a trip's few hundred photos.
     val counts = remember(media, places, filter) {
         object {
-            val byColour = countEach(media, filter, places, palette) { copy(colours = setOf(it)) }
+            val byColour = countEach(media, filter, places, (palette + WHEEL.map { it.second }).distinct()) { copy(colours = setOf(it)) }
             val byPerson = countEach(media, filter, places, people.map { it.first }) { copy(people = setOf(it)) }
             val byDay = countEach(media, filter, places, days) { copy(days = setOf(it)) }
             val byPlace = countEach(media, filter, places, placeNames) { copy(places = setOf(it)) }
@@ -263,6 +267,20 @@ internal fun FilterSheet(
                             rgbColor(hexToRgb(hex)), colourLabel(hex), hex in filter.colours,
                             onClick = { onChange(filter.copy(colours = filter.colours.toggle(hex))) },
                             count = n, enabled = n > 0, tilt = if (i % 2 == 0) -2f else 2f,
+                        )
+                    }
+                }
+            }
+            // Any colour, not only the trip's own: greyed out where no photo matches.
+            if (media.any { !it.palette.isNullOrEmpty() }) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SectionLabel("More colours")
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    WHEEL.forEachIndexed { i, (name, hex) ->
+                        val n = counts.byColour.getValue(hex)
+                        StampSwatch(
+                            rgbColor(hexToRgb(hex)), name, hex in filter.colours,
+                            onClick = { onChange(filter.copy(colours = filter.colours.toggle(hex))) },
+                            count = n, enabled = n > 0 || hex in filter.colours, tilt = if (i % 2 == 0) -2f else 2f,
                         )
                     }
                 }

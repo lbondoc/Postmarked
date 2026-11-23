@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
 import io.github.lbondoc.postmarked.domain.color.share
 import io.github.lbondoc.postmarked.domain.color.then
 import io.github.lbondoc.postmarked.domain.color.Look
@@ -591,7 +592,9 @@ private fun Modifier.dashedBorder(colour: Color) = drawBehind {
 internal fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (Oklab) -> Unit) {
     // How many photos are mostly each colour: what a one-colour summary can be built from.
     val matching = remember(material) {
-        material.palette.associate { swatch -> rgbToHex(swatch.rgb) to material.candidates.count { share(it.swatches, swatch.color) >= MONOCHROME_SHARE } }
+        (material.palette.map { it.rgb } + COLOUR_WHEEL.map { it.second }).associate { rgb ->
+            rgbToHex(rgb) to material.candidates.count { share(it.swatches, Oklab.fromRgb(rgb)) >= MONOCHROME_SHARE }
+        }
     }
     val chosen = summary.colours.firstOrNull().takeIf { mode == SummaryMode.Monochrome }
     SectionLabel(chosen?.let { "Colour · ${matching[it] ?: 0} photos match" } ?: "Colour")
@@ -601,6 +604,17 @@ internal fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryM
             StampSwatch(
                 rgbColor(swatch.rgb), colourName(swatch.color), hex == chosen, onClick = { onChoose(swatch.color) },
                 count = matching[hex], tilt = if (i % 2 == 0) -2f else 2f,
+            )
+        }
+    }
+    SectionLabel("More colours")
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        COLOUR_WHEEL.forEachIndexed { i, (name, rgb) ->
+            val hex = rgbToHex(rgb)
+            val n = matching.getValue(hex)
+            StampSwatch(
+                rgbColor(rgb), name, hex == chosen, onClick = { onChoose(Oklab.fromRgb(rgb)) },
+                count = n, enabled = n > 0, tilt = if (i % 2 == 0) -2f else 2f,
             )
         }
     }
