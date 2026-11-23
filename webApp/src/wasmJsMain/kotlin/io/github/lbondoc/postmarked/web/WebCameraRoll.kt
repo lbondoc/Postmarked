@@ -78,6 +78,8 @@ internal object WebCameraRoll : CameraRoll {
     override val mobileData: StateFlow<Boolean> = MutableStateFlow(true)
     override fun allowMobileData(allowed: Boolean) = Unit
 
+    override val pickedByHand = true // the files the person chose in the picker
+
     override suspend fun requestAccess() = true // choosing files in the picker is the permission
 
     // The picker offers everything; the import screen then sorts what was chosen by the trip's dates and places.

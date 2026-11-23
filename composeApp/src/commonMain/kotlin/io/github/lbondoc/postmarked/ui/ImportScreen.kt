@@ -77,6 +77,15 @@ class Found(
     val isEmpty get() = onTrip.isEmpty() && noLocation.isEmpty() && elsewhere.isEmpty() && otherDays.isEmpty()
 }
 
+/**
+ * Which items start ticked: on a phone only clear matches ("taken on this trip"), since the scan covers the whole
+ * camera roll around the trip. Files picked by hand (the website) were all chosen on purpose, so all of them,
+ * wherever their dates and GPS (often missing from photos copied to a computer) sorted them.
+ */
+fun startTicked(found: Found, alreadyAdded: Set<String>, pickedByHand: Boolean): List<String> =
+    (if (pickedByHand) found.onTrip + found.noLocation + found.elsewhere + found.otherDays else found.onTrip)
+        .map { it.uri }.filterNot { it in alreadyAdded }
+
 fun sortForTrip(scan: ScanResult, trip: TripBounds): Found {
     val byMatch = scan.items.groupBy { matchTrip(it.takenOn, it.location, trip.start, trip.end, trip.area) }
     val (noLocation, elsewhere) = byMatch[TripMatch.DatesOnly].orEmpty().partition { it.location == null }
@@ -100,7 +109,7 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
         val until = trip.end.plus(LOOK_AROUND_DAYS + 1, DateTimeUnit.DAY).atStartOfDayIn(zone)
         val result = sortForTrip(cameraRoll.scan(from.toEpochMilliseconds(), until.toEpochMilliseconds()), trip)
         selected.clear()
-        selected += result.onTrip.map { it.uri }.filterNot { it in alreadyAdded } // only clear matches start ticked
+        selected += startTicked(result, alreadyAdded, cameraRoll.pickedByHand)
         found = result
     }
 
