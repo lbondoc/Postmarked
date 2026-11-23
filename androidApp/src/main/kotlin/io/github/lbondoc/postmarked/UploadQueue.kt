@@ -40,6 +40,9 @@ object UploadQueue {
     val items = MutableStateFlow<List<QueuedUpload>>(emptyList())
     val mobileData = MutableStateFlow(false)
 
+    /** How far through its files each uploading item is. In memory only: a restart begins those items at zero. */
+    val progress = MutableStateFlow<Map<String, Float>>(emptyMap())
+
     /** Called once from PostmarkedApp, before any screen or background upload runs. */
     fun init(context: Context) {
         // AtomicFile writes a new copy and swaps it in, so a crash mid-save can't corrupt the queue.
@@ -71,7 +74,7 @@ object UploadQueue {
                 // An item that failed before and is picked again gets a fresh start.
                 val retried = picked.map { it.uri }.toSet()
                 list.filterNot { it.tripId == tripId && it.problem != null && it.item.uri in retried } +
-                    picked.map { QueuedUpload(UUID.randomUUID().toString(), tripId, it) }
+                    picked.map { QueuedUpload(UUID.randomUUID().toString(), tripId, it, queuedAtMs = System.currentTimeMillis()) }
             }
             UploadWork.start(context)
         }
@@ -100,7 +103,8 @@ object UploadWork {
         val network = if (UploadQueue.mobileData.value) NetworkType.CONNECTED else NetworkType.UNMETERED
         val request = OneTimeWorkRequestBuilder<UploadWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(network).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            // Linear: a hiccup costs half a minute each time, instead of waits that double toward hours.
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
             .build()
         // APPEND: if a run is going, this one starts after it, so items added meanwhile are never stranded.
         val policy = if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE

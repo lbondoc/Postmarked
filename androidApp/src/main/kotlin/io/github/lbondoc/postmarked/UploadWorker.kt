@@ -1,6 +1,8 @@
 package io.github.lbondoc.postmarked
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
@@ -8,6 +10,9 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.core.app.NotificationChannelCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
@@ -24,12 +29,14 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.storage.StorageRestException
 import io.github.jan.supabase.storage.storage
-import io.github.jan.supabase.storage.upload
+import io.github.jan.supabase.storage.UploadStatus
+import io.github.jan.supabase.storage.uploadAsFlow
 import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.DISPLAY
@@ -38,6 +45,7 @@ import io.github.lbondoc.postmarked.data.MediaKind.Companion.POSTER
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.THUMB
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
 import io.github.lbondoc.postmarked.data.QueuedUpload
+import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.myUserId
 import io.github.lbondoc.postmarked.data.supabase
 import io.github.lbondoc.postmarked.data.userMessage
@@ -54,6 +62,11 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
@@ -63,8 +76,13 @@ private const val JPEG = "image/jpeg"
 // About 45 MB a minute. shortcut: Supabase's free plan refuses files over 50 MB, so videos over
 // roughly a minute fail with a clear message; raise the limit in Storage settings on a paid plan.
 private const val VIDEO_BITRATE = 6_000_000
-// Android stops background work after 10 minutes, so each run hands over to a fresh one before that.
+// Android stops ordinary background work after 10 minutes, so a run that couldn't become a
+// foreground service (one started while the app was closed) hands over to a fresh run before that.
 private const val TIME_BUDGET_MS = 8 * 60_000L
+// Items uploaded at once. Each upload waits on the network between requests; three in parallel fill those gaps.
+private const val PARALLEL_UPLOADS = 3
+private const val CHANNEL_ID = "uploads"
+private const val NOTIFICATION_ID = 1
 // Temporary-looking failures in a row before an item is set aside so it can't block the queue.
 private const val MAX_ATTEMPTS = 8
 
@@ -81,29 +99,96 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         if (UploadQueue.items.value.none { it.waiting }) return Result.success()
         supabase.auth.awaitInitialization() // loads the saved sign-in from disk
         if (myUserId == null) return Result.retry() // the session couldn't be refreshed, e.g. offline
-        val stopAt = SystemClock.elapsedRealtime() + TIME_BUDGET_MS
 
-        while (true) {
-            val next = UploadQueue.items.value.firstOrNull { it.waiting } ?: return Result.success()
-            if (SystemClock.elapsedRealtime() > stopAt) {
-                UploadWork.start(applicationContext) // queued behind this run, so it starts as this one ends
-                return Result.success()
-            }
-            try {
-                upload(next)
-            } catch (e: CancellationException) {
-                throw e // Android stopped the work (Wi-Fi dropped, battery saver); it resumes later
-            } catch (e: Exception) {
-                // Re-read: the attempt may have recorded uploaded files before failing.
-                val current = UploadQueue.items.value.firstOrNull { it.mediaId == next.mediaId } ?: continue
-                val problem = e.permanentProblem()
-                if (problem == null && current.attempts + 1 < MAX_ATTEMPTS) {
-                    UploadQueue.save(current.copy(attempts = current.attempts + 1))
-                    return Result.retry() // WorkManager waits longer each time before trying again
+        // As a foreground service (with its notification) Android runs this promptly and without a time limit.
+        val foreground = showProgress()
+        val stopAt = if (foreground) Long.MAX_VALUE else SystemClock.elapsedRealtime() + TIME_BUDGET_MS
+        val claimed = mutableSetOf<String>()
+        val claimLock = Mutex()
+        var retryLater = false
+
+        // Several lanes, each taking the next item nobody has claimed until none are left.
+        coroutineScope {
+            repeat(PARALLEL_UPLOADS) {
+                launch {
+                    while (SystemClock.elapsedRealtime() < stopAt) {
+                        val next = claimLock.withLock {
+                            UploadQueue.items.value.firstOrNull { it.waiting && it.mediaId !in claimed }?.also { claimed += it.mediaId }
+                        } ?: return@launch
+                        // A failed item stays claimed, so no other lane picks it straight back up.
+                        if (!uploadOrRecordProblem(next)) {
+                            retryLater = true
+                            return@launch
+                        }
+                        if (foreground) showProgress()
+                    }
                 }
+            }
+        }
+        return when {
+            retryLater -> Result.retry() // WorkManager tries again in about 30 seconds
+            UploadQueue.items.value.any { it.waiting } -> {
+                UploadWork.start(applicationContext) // time ran out: queued behind this run, so it starts as this one ends
+                Result.success()
+            }
+            else -> Result.success()
+        }
+    }
+
+    /** Uploads one item. False when it failed in a way worth retrying later. */
+    private suspend fun uploadOrRecordProblem(next: QueuedUpload): Boolean = try {
+        upload(next)
+        true
+    } catch (e: CancellationException) {
+        throw e // Android stopped the work (Wi-Fi dropped, battery saver); it resumes later
+    } catch (e: Exception) {
+        // Re-read: the attempt may have recorded uploaded files before failing.
+        val current = UploadQueue.items.value.firstOrNull { it.mediaId == next.mediaId }
+        val problem = e.permanentProblem()
+        when {
+            current == null -> true
+            problem == null && current.attempts + 1 < MAX_ATTEMPTS -> {
+                UploadQueue.save(current.copy(attempts = current.attempts + 1))
+                false
+            }
+            else -> {
                 UploadQueue.save(current.copy(problem = problem ?: "Kept failing: ${e.userMessage()}"))
                 scratch(current).deleteRecursively()
+                true
             }
+        }
+    } finally {
+        UploadQueue.progress.update { it - next.mediaId }
+    }
+
+    /** Shows or updates the upload notification. False when Android won't allow it (app started in the background). */
+    private suspend fun showProgress(): Boolean {
+        val progress = batchProgress(UploadQueue.items.value, UploadQueue.progress.value) ?: return false
+        val notifications = NotificationManagerCompat.from(applicationContext)
+        notifications.createNotificationChannel(
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW).setName("Uploads").build()
+        )
+        val openApp = PendingIntent.getActivity(
+            applicationContext, 0,
+            applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle("Uploading to Postmarked")
+            .setContentText("${progress.done} of ${progress.total}")
+            .setProgress(progress.total, progress.done, false)
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        return try {
+            setForeground(ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false // Android 12+ refuses to start one from the background; carry on as ordinary background work
         }
     }
 
@@ -115,13 +200,20 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val dir = scratch(start).apply { mkdirs() }
         var entry = start
         val files = if (start.item.kind == MediaKind.Photo) photoFiles(uri, dir) else videoFiles(uri, dir)
-        for ((name, produce) in files) {
-            if (name in entry.uploadedFiles) continue
+        fun report(fraction: Float) = UploadQueue.progress.update { it + (start.mediaId to fraction) }
+        files.forEachIndexed { index, (name, produce) ->
+            if (name in entry.uploadedFiles) return@forEachIndexed
             val upload = withContext(Dispatchers.IO) { produce() }
-            supabase.storage.from("media").upload(Media.path(entry.tripId, entry.mediaId, name), upload.file) {
+            supabase.storage.from("media").uploadAsFlow(Media.path(entry.tripId, entry.mediaId, name), upload.file) {
                 upsert = true // a retry overwrites a half-finished earlier attempt
                 contentType = ContentType.parse(upload.contentType)
+            }.collect { status ->
+                // Each file is an equal share of the item's bar; the original or the video dominates in practice.
+                if (status is UploadStatus.Progress && status.contentLength > 0) {
+                    report((index + status.totalBytesSend.toFloat() / status.contentLength) / files.size)
+                }
             }
+            report((index + 1f) / files.size)
             entry = entry.copy(uploadedFiles = entry.uploadedFiles + name)
             UploadQueue.save(entry)
         }
@@ -163,7 +255,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     /** Re-encodes to H.264 at 1080p at most, in SDR so every browser and phone can play it. */
     // Media3 marks its video converter "unstable": its API may change between versions, so upgrades may need edits here.
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private suspend fun transcode(uri: Uri, out: File): File {
+    private suspend fun transcode(uri: Uri, out: File): File = converting.withLock {
         if (out.exists()) return out // converted on an earlier attempt; only the upload failed
         val shortSide = MediaMetadataRetriever().use { retriever ->
             retriever.setDataSource(applicationContext, uri)
@@ -206,7 +298,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             }
         }
         if (!partial.renameTo(out)) throw IOException("Couldn't save the converted video")
-        return out
+        out
     }
 
     /** A frame about a second in (or halfway, for shorter clips), already turned upright by Android. */
@@ -220,6 +312,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private fun scratch(entry: QueuedUpload) = File(scratchRoot(applicationContext), entry.mediaId)
 
     companion object {
+        /** One video conversion at a time: phones have few hardware video encoders, and running out fails the conversion. */
+        private val converting = Mutex()
+
         /** Working copies of files being uploaded. In the cache, so Android may clear it; they are remade if so. */
         fun scratchRoot(context: Context) = File(context.cacheDir, "uploads")
     }

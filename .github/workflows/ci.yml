@@ -44,7 +44,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
-        run: ./gradlew :core:domain:jvmTest
+        run: ./gradlew :core:domain:jvmTest :composeApp:testAndroidHostTest
       - name: Build debug APK
         run: ./gradlew :androidApp:assembleDebug
       # Download this from the run's page to install the app on a phone without Android Studio.

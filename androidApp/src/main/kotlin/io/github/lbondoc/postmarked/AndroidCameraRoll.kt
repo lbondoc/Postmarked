@@ -33,6 +33,8 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
         // Android 14+: lets people share only some photos ("limited access") instead of all or nothing.
         if (Build.VERSION.SDK_INT >= 34) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         add(Manifest.permission.ACCESS_MEDIA_LOCATION) // without it every location reads as blank
+        // Android 13+: lets the upload progress show in the notification shade. Saying no doesn't stop uploads.
+        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private var waiting: CancellableContinuation<Unit>? = null
@@ -84,6 +86,8 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
     }
 
     override val uploads: StateFlow<List<QueuedUpload>> = UploadQueue.items
+
+    override val uploadProgress: StateFlow<Map<String, Float>> = UploadQueue.progress
 
     override fun upload(tripId: String, items: List<DeviceMedia>) = UploadQueue.add(activity.applicationContext, tripId, items)
 

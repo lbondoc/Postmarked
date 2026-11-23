@@ -35,7 +35,7 @@ its photos. Below the map: total miles and drive time, and each day's.
 Needs JDK 21 and the Android SDK (`ANDROID_HOME` set, or `sdk.dir=...` in `local.properties`).
 
 ```
-./gradlew :core:domain:jvmTest          # unit tests
+./gradlew :core:domain:jvmTest :composeApp:testAndroidHostTest   # unit tests
 ./gradlew :androidApp:assembleDebug     # APK in androidApp/build/outputs/apk/debug/
 ./supabase/tests/run.sh                 # database access-rule tests
 ```

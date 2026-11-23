@@ -11,6 +11,7 @@ kotlin {
         namespace = "io.github.lbondoc.postmarked.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
+        withHostTest {} // runs commonTest on the computer, no phone needed
     }
 
     sourceSets {
@@ -32,6 +33,9 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.maplibre.compose)
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
         }
         androidMain.dependencies {
             // The HTTP engine is per platform; iOS will get its own (Darwin) later.

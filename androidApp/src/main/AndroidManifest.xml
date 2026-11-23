@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Read the camera roll. Android 13+ splits this into images and video. -->
@@ -12,6 +13,9 @@
         android:maxSdkVersion="32" />
     <!-- Without this Android blanks out GPS in every photo and video we read. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    <!-- Uploads run as a foreground service with a progress notification, so Android doesn't hold them back. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".PostmarkedApp"
@@ -37,5 +41,10 @@
                 <data android:scheme="postmarked" android:host="join" />
             </intent-filter>
         </activity>
+        <!-- WorkManager's own service for foreground work; Android 14+ needs its type declared. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 </manifest>

@@ -67,8 +67,26 @@ data class QueuedUpload(
     val problem: String? = null,
     /** Failed attempts in a row that looked temporary (a dropped connection, a server hiccup). */
     val attempts: Int = 0,
+    /** When it was picked; groups items into the batch a progress bar counts. */
+    val queuedAtMs: Long = 0,
 ) {
     val waiting: Boolean get() = !finished && problem == null
+}
+
+class BatchProgress(val done: Int, val total: Int, val fraction: Float)
+
+/**
+ * Progress through the current batch: everything queued since the oldest item still waiting,
+ * so a new batch starts from zero rather than counting every upload ever made from this phone.
+ * [partial] is how far through its files each in-flight item is, 0 to 1. Items that failed
+ * for good leave the count. Null when nothing is waiting.
+ */
+fun batchProgress(uploads: List<QueuedUpload>, partial: Map<String, Float>): BatchProgress? {
+    val start = uploads.filter { it.waiting }.minOfOrNull { it.queuedAtMs } ?: return null
+    val batch = uploads.filter { it.queuedAtMs >= start && it.problem == null }
+    val done = batch.count { it.finished }
+    val inFlight = batch.filter { it.waiting }.sumOf { (partial[it.mediaId] ?: 0f).toDouble() }
+    return BatchProgress(done, batch.size, ((done + inFlight) / batch.size).toFloat())
 }
 
 class ScanResult(val items: List<DeviceMedia>, val locationAllowed: Boolean)
@@ -83,6 +101,9 @@ interface CameraRoll {
 
     /** Everything this phone has queued for any trip. */
     val uploads: StateFlow<List<QueuedUpload>>
+
+    /** How far through its files each uploading item is, 0 to 1, by media id. */
+    val uploadProgress: StateFlow<Map<String, Float>>
 
     /** Queues [items] for [tripId]; they upload in the background, Wi-Fi only unless [mobileData] is on. */
     fun upload(tripId: String, items: List<DeviceMedia>)

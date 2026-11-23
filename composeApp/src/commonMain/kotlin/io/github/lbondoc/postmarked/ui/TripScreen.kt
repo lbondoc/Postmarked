@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -20,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -52,6 +54,7 @@ import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.TripRole
+import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.inviteLink
 
@@ -102,6 +105,7 @@ fun TripScreen(
     var choosingRole by remember { mutableStateOf(false) }
     var confirmingExit by remember { mutableStateOf(false) }
     val uploads by cameraRoll.uploads.collectAsState()
+    val uploadProgress by cameraRoll.uploadProgress.collectAsState()
     val mobileData by cameraRoll.mobileData.collectAsState()
     val mine = uploads.filter { it.tripId == tripId }
     val uploaded = mine.count { it.finished }
@@ -155,9 +159,9 @@ fun TripScreen(
                         Text(if (isOwner) "Delete trip" else "Leave trip")
                     }
 
-                    val waiting = mine.count { it.waiting }
-                    if (waiting > 0) {
-                        Text("Uploading $waiting from this phone" + if (mobileData) "" else " when on Wi-Fi")
+                    batchProgress(mine, uploadProgress)?.let { progress ->
+                        Text("Uploading ${progress.done} of ${progress.total} from this phone" + if (mobileData) "" else " (on Wi-Fi only)")
+                        LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
                         Row(
                             modifier = Modifier.toggleable(mobileData, role = Role.Switch, onValueChange = cameraRoll::allowMobileData),
                             verticalAlignment = Alignment.CenterVertically,
