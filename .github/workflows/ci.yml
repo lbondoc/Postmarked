@@ -47,6 +47,9 @@ jobs:
         run: ./gradlew :core:domain:jvmTest :core:domain:wasmJsNodeTest :composeApp:testAndroidHostTest
       - name: Build debug APK
         run: ./gradlew :androidApp:assembleDebug
+      # The website shares composeApp; every change must still compile for the browser (TASKS.md, from P2 on).
+      - name: Compile the web build
+        run: ./gradlew :composeApp:compileKotlinWasmJs
       # The app's fonts and theme files must be inside the APK; without them it crashes on opening a trip.
       - name: Check the APK carries the app's resources
         run: unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -q 'postmarked.resources/files/themes/index.json'

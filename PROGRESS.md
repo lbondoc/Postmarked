@@ -83,5 +83,46 @@ BLOCKED, and nothing gets deployed from this sandbox.
   tests in CI depend on the Kotlin tooling downloading normally on GitHub's runners, so the first CI run of this
   branch should be watched.
 
+## P3 composeApp on wasmJs
+- Changes:
+  - `composeApp/build.gradle.kts`: added `wasmJs { browser() }`. Moved `maplibre-compose` from `commonMain` to
+    `androidMain`, because P1 found it has no wasmJs variant and a commonMain dependency must resolve for every
+    target. Added `ktor-client-js` to `wasmJsMain`: supabase-kt and Coil need an HTTP engine on each platform, and
+    SPEC §1.1 names Js for web.
+  - `gradle/libs.versions.toml`: added `ktor-client-js` at the existing `ktor` version. It's the "matching
+    per-platform Ktor engine" SPEC allows, not a new library.
+  - `ui/MapScreen.kt`: calls `TripMap(...)` instead of the private MapLibre `RouteMap`, and drops the maplibre
+    and GeoJSON imports and code. `dayNumber`, `dayColor` and `parseHex` became `internal` so both actuals colour
+    days the same way as the summary list beside them.
+  - `ui/TripMap.kt` (new, commonMain): `expect fun TripMap`, plus `RouteDrawing`, the tile-free Canvas route the
+    task asks for ("TripMap's web actual … fallback per P1"), and its pure `routeProjection`. The drawing lives in
+    commonMain so S6's route slide can reuse it (SPEC §8.3).
+  - `androidMain/.../TripMap.android.kt` (new): the MapLibre map moved here unchanged. Diffed against the old
+    `RouteMap` body, only the signature line differs.
+  - `wasmJsMain/.../TripMap.wasmJs.kt` (new): the web actual, which calls `RouteDrawing`.
+  - `RouteProjectionTest.kt` (new): `routeProjection` is new math that decides where every stop is drawn and
+    tapped, so it gets tests: points stay inside the padded box, north is up and east is right, the wider span
+    fills its side, and a single stop is centred.
+  - `.github/workflows/ci.yml`: a "Compile the web build" step, since TASKS.md requires every task from here on
+    to pass `:composeApp:compileKotlinWasmJs`.
+- Approach: the compile errors from P1 showed the map was the only platform-only code in commonMain. Everything
+  else (camera roll, export, video, share, QR) already goes through the interfaces `App()` takes, so only the map
+  needed `expect`/`actual`. I considered two alternatives and rejected both:
+  - An interface parameter on `App()` for the map, as with `Exporter`. That would push maplibre into
+    `androidApp` and change `App()`'s signature for something with no runtime state; `expect`/`actual` is what
+    the task names.
+  - An empty web map. The task asks for the P1 fallback.
+  Tap hit-testing uses the nearest stop within 24 dp, re-projected from the gesture's own size, so drawing and
+  tapping can't disagree.
+- Verification:
+  - Task check `./gradlew :composeApp:compileKotlinWasmJs :composeApp:testAndroidHostTest` → `BUILD
+    SUCCESSFUL`. RouteProjectionTest: `tests="4" skipped="0" failures="0" errors="0"`.
+  - Gate (now with `:composeApp:compileKotlinWasmJs`): Gradle `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`.
+- Follow-ups: **needs manual check:** the map screen on the phone should look and work as before. The code moved
+  unchanged, but it now lives in a different source set and nobody has run it on a device. The web drawing gets
+  its first real render in P4's smoke test, behind sign-in. It has no zoom or pan: fine for a route overview, a
+  limit for long trips with dense stops.
+
 ## Found
 - (nothing yet)

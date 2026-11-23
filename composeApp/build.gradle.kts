@@ -16,6 +16,10 @@ kotlin {
         androidResources { enable = true }
     }
 
+    // The website (SPEC §1.2). maplibre-compose has no wasmJs build, so the map is Android-only (SPEC §1.1).
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs { browser() }
+
     sourceSets {
         commonMain.dependencies {
             // `api` re-exports these to the app modules: they use the domain types,
@@ -35,14 +39,17 @@ kotlin {
             implementation(libs.qrose)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
-            implementation(libs.maplibre.compose)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
         androidMain.dependencies {
+            implementation(libs.maplibre.compose)
             // The HTTP engine is per platform; iOS will get its own (Darwin) later.
             implementation(libs.ktor.client.okhttp)
+        }
+        wasmJsMain.dependencies {
+            implementation(libs.ktor.client.js)
         }
     }
 }

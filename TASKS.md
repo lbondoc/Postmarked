@@ -27,7 +27,7 @@ must pass as well.
 - [x] **P2 Domain on all targets.** Add `wasmJs { nodejs() }`, `iosArm64` and `iosSimulatorArm64` to `core/domain`.
   Fix anything that only works on the JVM.
   Check: `./gradlew :core:domain:jvmTest :core:domain:wasmJsNodeTest`
-- [ ] **P3 composeApp on wasmJs.** Add the target and the Js Ktor engine. Put platform-only code behind
+- [x] **P3 composeApp on wasmJs.** Add the target and the Js Ktor engine. Put platform-only code behind
   `expect`/`actual` or the existing interfaces, and add `TripMap`'s web actual (real map or fallback per P1).
   Check: `./gradlew :composeApp:compileKotlinWasmJs :composeApp:testAndroidHostTest`
 - [ ] **P4 webApp module and smoke test.** A `webApp` wasmJs executable that runs `App()`, plus `web/smoke.mjs`
