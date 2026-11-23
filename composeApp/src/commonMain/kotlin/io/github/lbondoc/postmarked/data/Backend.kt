@@ -7,6 +7,7 @@ import io.github.jan.supabase.auth.exception.AuthRestException
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
+import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.storage.Storage
 import kotlin.time.Duration.Companion.minutes
@@ -22,6 +23,7 @@ val supabase: SupabaseClient by lazy {
     createSupabaseClient(SUPABASE_URL, SUPABASE_KEY) {
         install(Auth) // sign-in; keeps the session on the device and refreshes it
         install(Postgrest) // tables and database functions over HTTPS
+        install(Functions) // server-side helpers in supabase/functions, e.g. road routing
         install(Storage) {
             // The default two minutes is too short for a 50 MB video on slow hotel Wi-Fi.
             transferTimeout = 10.minutes

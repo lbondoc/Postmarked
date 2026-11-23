@@ -21,6 +21,7 @@ kotlin {
             api(libs.supabase.auth)
             api(libs.supabase.postgrest)
             api(libs.supabase.storage)
+            implementation(libs.supabase.functions)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
@@ -30,6 +31,7 @@ kotlin {
             implementation(libs.qrose)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
+            implementation(libs.maplibre.compose)
         }
         androidMain.dependencies {
             // The HTTP engine is per platform; iOS will get its own (Darwin) later.

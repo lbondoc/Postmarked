@@ -138,10 +138,10 @@ object Media {
         deleteFiles(ofTrip(tripId).flatMap { m -> m.kind.files.map { path(tripId, m.id, it) } })
 
     /** Short-lived links to each item's thumbnail, by media id. The bucket is private, so plain links don't work. */
-    suspend fun thumbnailUrls(tripId: String, items: List<TripMedia>): Map<String, String> {
-        if (items.isEmpty()) return emptyMap()
-        val byPath = bucket.createSignedUrls(1.hours, items.map { path(tripId, it.id, MediaKind.THUMB) })
+    suspend fun thumbnailUrls(tripId: String, ids: List<String>): Map<String, String> {
+        if (ids.isEmpty()) return emptyMap()
+        val byPath = bucket.createSignedUrls(1.hours, ids.map { path(tripId, it, MediaKind.THUMB) })
             .associate { it.path to it.signedURL }
-        return items.mapNotNull { m -> byPath[path(tripId, m.id, MediaKind.THUMB)]?.let { m.id to it } }.toMap()
+        return ids.mapNotNull { id -> byPath[path(tripId, id, MediaKind.THUMB)]?.let { id to it } }.toMap()
     }
 }

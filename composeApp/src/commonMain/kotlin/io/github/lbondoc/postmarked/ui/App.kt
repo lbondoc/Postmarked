@@ -38,6 +38,7 @@ import kotlinx.serialization.Serializable
 @Serializable private object NewTripRoute
 @Serializable private data class TripRoute(val id: String)
 @Serializable private data class ImportRoute(val tripId: String)
+@Serializable private data class MapRoute(val tripId: String)
 
 /**
  * The whole app. The parameters are things only the platform can do, handed in by the
@@ -83,8 +84,12 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
                 cameraRoll = cameraRoll,
                 onBack = { nav.popBackStack() },
                 onAddMedia = { nav.navigate(ImportRoute(tripId)) },
+                onOpenMap = { nav.navigate(MapRoute(tripId)) },
                 onShare = onShare,
             )
+        }
+        composable<MapRoute> { entry ->
+            MapScreen(tripId = entry.toRoute<MapRoute>().tripId, onBack = { nav.popBackStack() })
         }
         composable<ImportRoute> { entry ->
             ImportScreen(tripId = entry.toRoute<ImportRoute>().tripId, cameraRoll = cameraRoll, onDone = { nav.popBackStack() })
@@ -122,7 +127,7 @@ abstract class ScreenModel : ViewModel() {
 }
 
 // shortcut: English month names only, switch to the platform's locale formatting when translating the app.
-private val DAY = LocalDate.Format {
+internal val DAY = LocalDate.Format {
     monthName(MonthNames.ENGLISH_ABBREVIATED); char(' '); day(Padding.NONE); char(','); char(' '); year()
 }
 

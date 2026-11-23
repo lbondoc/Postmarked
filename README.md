@@ -2,7 +2,7 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: MVP milestone 2 (photo import and upload)
+## Status: MVP milestone 3 (route and map)
 
 Milestone 1: sign in, create a trip (name, dates, one or more regions found by place search),
 invite people by QR code or link as editor or viewer, join, leave, delete.
@@ -13,6 +13,12 @@ else, other days), and queues the chosen ones. They upload in the background, on
 mobile data is allowed, and continue after the app is closed or the phone restarts. The trip
 page shows a grid of everything uploaded. The same file added by two people is stored once.
 
+Milestone 3: "Map and route" on a trip rebuilds where the group went from everyone's located
+photos: photos taken in a row at one place become a stop, GPS glitches are dropped, flights and
+ferries are drawn dashed and not counted, and the stops are joined along real roads. The map
+colours each day differently and groups nearby stops into numbered circles; tapping a stop shows
+its photos. Below the map: total miles and drive time, and each day's.
+
 ## Layout
 
 | Path | What lives there |
@@ -21,6 +27,7 @@ page shows a grid of everything uploaded. The same file added by two people is s
 | `composeApp` | Shared app: `data/` talks to Supabase, `ui/` holds the Compose screens. |
 | `androidApp` | Android entry point: Activity, manifest, share sheet, QR scanner, camera-roll reading, background uploads. |
 | `supabase/migrations` | Database schema and access rules, applied to the Supabase project in filename order. |
+| `supabase/functions/route` | Server function that joins stops along roads via Stadia Maps, keeping the Stadia key off phones. Tests: `deno test supabase/functions/`. |
 | `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
 
 ## Build
@@ -43,6 +50,16 @@ uninstall the previous build before installing a new one.
    running one twice fails with "already exists" and changes nothing.
 2. Authentication → Sign In / Providers → Email: turn **Confirm email** off. The app signs in
    with email + password, and Supabase's built-in mailer is too limited to confirm friends' addresses.
+
+3. Road routing (without it the map draws straight lines between stops):
+   - Create a free account at stadiamaps.com and an API key.
+   - Supabase dashboard → Edge Functions → Secrets: add `STADIA_API_KEY` with that key.
+   - Edge Functions → Deploy a new function → Via Editor: name it `route`, paste
+     `supabase/functions/route/index.ts`, turn off JWT verification (the function checks the
+     sign-in itself), deploy.
+
+Stadia's free plan covers development and non-commercial use; commercial use starts at their
+Starter plan. Map tiles come from OpenFreeMap, which needs no key.
 
 The project URL and publishable key live in `composeApp/.../data/Backend.kt`.
 

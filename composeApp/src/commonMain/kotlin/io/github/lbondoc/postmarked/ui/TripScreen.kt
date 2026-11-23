@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,6 +24,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
@@ -67,7 +71,7 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
 
     fun loadMedia() = run {
         val items = Media.ofTrip(tripId)
-        thumbnails = Media.thumbnailUrls(tripId, items)
+        thumbnails = Media.thumbnailUrls(tripId, items.map { it.id })
         media = items
     }
 
@@ -91,6 +95,7 @@ fun TripScreen(
     cameraRoll: CameraRoll,
     onBack: () -> Unit,
     onAddMedia: () -> Unit,
+    onOpenMap: () -> Unit,
     onShare: (String) -> Unit,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
 ) {
@@ -132,6 +137,7 @@ fun TripScreen(
                     }
                     Text(trip.dates, style = MaterialTheme.typography.titleMedium)
                     trip.regions.forEach { Text(it.label) }
+                    Button(onClick = onOpenMap) { Text("Map and route") }
 
                     Text("People", style = MaterialTheme.typography.titleMedium)
                     trip.members.sortedBy { it.role }.forEach { member ->
@@ -152,6 +158,14 @@ fun TripScreen(
                     val waiting = mine.count { it.waiting }
                     if (waiting > 0) {
                         Text("Uploading $waiting from this phone" + if (mobileData) "" else " when on Wi-Fi")
+                        Row(
+                            modifier = Modifier.toggleable(mobileData, role = Role.Switch, onValueChange = cameraRoll::allowMobileData),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Switch(checked = mobileData, onCheckedChange = null) // the whole row is the switch
+                            Text("Use mobile data")
+                        }
                     }
                     val failed = mine.mapNotNull { it.problem }
                     if (failed.isNotEmpty()) {
@@ -164,7 +178,7 @@ fun TripScreen(
                 }
             }
             items(vm.media, key = { it.id }) { item ->
-                Thumbnail(item, tripId, vm.thumbnails[item.id])
+                Thumbnail(tripId, item.id, item.kind, vm.thumbnails[item.id])
             }
         }
     }
@@ -228,18 +242,19 @@ fun TripScreen(
     }
 }
 
+/** One square in a grid of a trip's photos and videos. */
 @Composable
-private fun Thumbnail(item: TripMedia, tripId: String, url: String?) {
-    val path = Media.path(tripId, item.id, MediaKind.THUMB)
+internal fun Thumbnail(tripId: String, id: String, kind: MediaKind, url: String?) {
+    val path = Media.path(tripId, id, MediaKind.THUMB)
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant)) {
         if (url != null) AsyncImage(
             // Signed links change on every load; keying the cache by file path keeps thumbnails cached anyway.
             model = ImageRequest.Builder(LocalPlatformContext.current).data(url).memoryCacheKey(path).diskCacheKey(path).build(),
-            contentDescription = if (item.kind == MediaKind.Video) "Video" else "Photo",
+            contentDescription = if (kind == MediaKind.Video) "Video" else "Photo",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        if (item.kind == MediaKind.Video) Text(
+        if (kind == MediaKind.Video) Text(
             "▶",
             color = Color.White,
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp),

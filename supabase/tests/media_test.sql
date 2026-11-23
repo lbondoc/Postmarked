@@ -44,7 +44,8 @@ begin
   assert not test.fails(format(add_media, photo, trip, 'photo', '2026-10-03T18:00:00Z', '-420',
                                'SRID=4326;POINT(-121.5 36.5)', hash1));
   assert (select contributor from public.media where id = photo) = editor, 'the contributor is always the uploader';
-  assert (select round(st_y(location::geometry)::numeric, 1) from public.media where id = photo) = 36.5;
+  assert (select (public.lat(m), public.lng(m)) = (36.5, -121.5) from public.media m where id = photo),
+    'the map reads coordinates back as numbers';
   assert test.fails(format(add_media, gen_random_uuid(), trip, 'photo', '2026-10-03T18:00:00Z', 'null', null, hash1)),
     'the same file cannot be added to a trip twice';
   assert test.fails(format(add_media, gen_random_uuid(), trip, 'sticker', '2026-10-03T18:00:00Z', 'null', null, hash2));
