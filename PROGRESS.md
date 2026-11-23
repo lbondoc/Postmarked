@@ -1165,6 +1165,18 @@ BLOCKED, and nothing gets deployed from this sandbox.
     far from the slot's. A deeper reflow of those two is possible later.
   - S4's crop ratio picker builds on `arrange` (a chosen ratio replaces the photo's own).
 
+## Change: stop uploading photo originals (owner's request, after this round's tasks)
+- Changes:
+  - `androidApp/.../UploadWorker.kt` and `webApp/.../WebCameraRoll.kt`: photos upload only `display.jpg` (2048 px)
+    and `thumb.jpg`. The original was most of each photo's 3–6 MB, and the free plan's 1 GB is shared by every
+    trip. Originals stay on the phone that took them.
+  - `data/Media.kt`: Save/Share (F6) and the info panel's file size (F5) use the display copy. `MediaKind.files`
+    keeps `original`, so deleting a photo uploaded earlier still removes its original.
+  - `README.md`: the "What is stored" table and a note on why.
+- Verification: Android, web and iOS compile; the gate passes (unit tests, APK, deno, database, web smoke).
+- Follow-ups: originals already uploaded stay in Storage until their photos are deleted. Date, time zone and GPS
+  are unaffected: they are read at upload and kept in the database row.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

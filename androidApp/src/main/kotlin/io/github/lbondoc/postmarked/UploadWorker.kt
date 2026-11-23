@@ -41,7 +41,6 @@ import io.github.jan.supabase.storage.uploadAsFlow
 import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.DISPLAY
-import io.github.lbondoc.postmarked.data.MediaKind.Companion.ORIGINAL
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.POSTER
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.THUMB
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
@@ -223,7 +222,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val isPhoto = start.item.kind == MediaKind.Photo
         // `lazy`: decoded once, on first use, and only if something still needs the picture.
         val picture = lazy { if (isPhoto) decodeScaled(ImageDecoder.createSource(applicationContext.contentResolver, uri), DISPLAY_PX) else posterFrame(uri).scaledTo(DISPLAY_PX) }
-        val files = if (isPhoto) photoFiles(uri, dir, picture) else videoFiles(uri, dir, picture)
+        val files = if (isPhoto) photoFiles(dir, picture) else videoFiles(uri, dir, picture)
         fun report(fraction: Float) = UploadQueue.progress.update { it + (start.mediaId to fraction) }
         files.forEachIndexed { index, (name, produce) ->
             if (name in entry.uploadedFiles) return@forEachIndexed
@@ -261,13 +260,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     // `lazy` decodes the photo once, on first use, and only if a file that needs it is still to upload.
-    private fun photoFiles(uri: Uri, dir: File, display: Lazy<Bitmap>): List<Pair<String, suspend () -> Upload>> {
+    // The original isn't uploaded: it would use most of the free plan's 1 GB, and it stays on the phone.
+    private fun photoFiles(dir: File, display: Lazy<Bitmap>): List<Pair<String, suspend () -> Upload>> {
         return listOf(
-            ORIGINAL to {
-                val copy = File(dir, ORIGINAL)
-                applicationContext.openOriginal(uri).use { input -> copy.outputStream().use { input.copyTo(it) } }
-                Upload(copy, applicationContext.contentResolver.getType(uri) ?: JPEG)
-            },
             DISPLAY to { Upload(display.value.jpeg(File(dir, DISPLAY), quality = 85), JPEG) },
             THUMB to { Upload(display.value.scaledTo(THUMB_PX).jpeg(File(dir, THUMB), quality = 80), JPEG) },
         )
