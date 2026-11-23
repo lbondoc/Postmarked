@@ -15,6 +15,7 @@ import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.ScanResult
 import io.github.lbondoc.postmarked.data.TOO_BIG
+import io.github.lbondoc.postmarked.data.cancelUploads
 import io.github.lbondoc.postmarked.data.pickedFileProblem
 import io.github.lbondoc.postmarked.data.pickedKind
 import io.github.lbondoc.postmarked.data.pickedMedia
@@ -66,6 +67,8 @@ internal object WebCameraRoll : CameraRoll {
     private val scope = CoroutineScope(SupervisorJob())
     private var running: Job? = null
     private val claimed = mutableSetOf<String>()
+    /** The upload running for each item, so cancelling stops it. */
+    private val jobs = mutableMapOf<String, Job>()
 
     private val queue = MutableStateFlow<List<QueuedUpload>>(emptyList())
     override val uploads: StateFlow<List<QueuedUpload>> = queue.asStateFlow()
@@ -133,7 +136,10 @@ internal object WebCameraRoll : CameraRoll {
                             // The browser runs this on one thread, so claiming needs no lock.
                             val next = queue.value.firstOrNull { it.waiting && it.mediaId !in claimed } ?: break
                             claimed += next.mediaId
-                            uploadOrRecordProblem(next)
+                            val job = launch { uploadOrRecordProblem(next) }
+                            jobs[next.mediaId] = job
+                            job.join()
+                            jobs.remove(next.mediaId)
                         }
                     }
                 }
@@ -165,6 +171,18 @@ internal object WebCameraRoll : CameraRoll {
         }
     }
 
+    override fun cancel(mediaIds: Set<String>) {
+        val (kept, cancelled) = cancelUploads(queue.value, mediaIds)
+        queue.value = kept
+        progress.update { it - mediaIds }
+        scope.launch {
+            for (upload in cancelled) {
+                jobs[upload.mediaId]?.let { it.cancel(); it.join() } // aborts its request (see upload's AbortController)
+                runCatching { Media.discardUpload(upload) } // whatever it sent, including a file that just finished
+            }
+        }
+    }
+
     private fun current(start: QueuedUpload) = queue.value.firstOrNull { it.mediaId == start.mediaId } ?: start
 
     private fun save(entry: QueuedUpload) = queue.update { list -> list.map { if (it.mediaId == entry.mediaId) entry else it } }
@@ -189,10 +207,16 @@ internal object WebCameraRoll : CameraRoll {
             val (body, type) = produce()
             val token = supabase.auth.currentAccessTokenOrNull() ?: throw UploadFailed(401)
             val url = supabase.storage.resolveUrl("object/media/${Media.path(entry.tripId, entry.mediaId, name)}")
-            val status = upload(url, body, type, token, supabase.supabaseKey) { sent ->
-                // Each file is an equal share of the item's bar, as on the phone.
-                progress.update { it + (start.mediaId to ((index + sent.toFloat()) / files.size)) }
-            }.await<JsNumber>().toInt()
+            val controller = abortController()
+            val status = try {
+                upload(url, body, type, token, supabase.supabaseKey, { sent ->
+                    // Each file is an equal share of the item's bar, as on the phone.
+                    if (queue.value.any { it.mediaId == start.mediaId }) progress.update { it + (start.mediaId to ((index + sent.toFloat()) / files.size)) }
+                }, controller).await<JsNumber>().toInt()
+            } catch (e: CancellationException) {
+                abortNow(controller) // cancelled: stop sending
+                throw e
+            }
             if (status !in 200..299) throw UploadFailed(status)
             entry = entry.copy(uploadedFiles = entry.uploadedFiles + name)
             save(entry)

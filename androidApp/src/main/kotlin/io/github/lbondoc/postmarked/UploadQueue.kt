@@ -11,7 +11,9 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import io.github.lbondoc.postmarked.data.DeviceMedia
+import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.QueuedUpload
+import io.github.lbondoc.postmarked.data.cancelUploads
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -20,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -84,6 +87,23 @@ object UploadQueue {
         prefs.edit { putBoolean("mobile_data", allowed) }
         mobileData.value = allowed
         UploadWork.start(context, restart = true) // so the new network rule applies to what is already queued
+    }
+
+    /**
+     * Cancels [ids]: they leave the queue at once (UploadWorker notices and stops any that is uploading), and
+     * whatever they sent is deleted from Storage. Finished items stay.
+     */
+    fun cancel(context: Context, ids: Set<String>) {
+        scope.launch {
+            var cancelled = emptyList<QueuedUpload>()
+            update { list -> cancelUploads(list, ids).also { cancelled = it.second }.first }
+            progress.update { it - ids }
+            for (upload in cancelled) {
+                File(UploadWorker.scratchRoot(context), upload.mediaId).deleteRecursively()
+                // shortcut: offline, the partly sent files stay in Storage; retry the cleanup if orphans pile up.
+                runCatching { Media.discardUpload(upload) }
+            }
+        }
     }
 
     /** Signing out drops this phone's queue: it belongs to the account that filled it. */

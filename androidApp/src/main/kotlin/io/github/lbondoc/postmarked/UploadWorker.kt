@@ -66,7 +66,10 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -141,7 +144,11 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     /** Uploads one item. False when it failed in a way worth retrying later. */
     private suspend fun uploadOrRecordProblem(next: QueuedUpload): Boolean = try {
-        upload(next)
+        if (!uploadUnlessCancelled(next)) {
+            // Cancelled mid-upload: UploadQueue.cancel already cleaned up, but a file may have finished since.
+            scratch(next).deleteRecursively()
+            runCatching { Media.discardUpload(next) }
+        }
         true
     } catch (e: CancellationException) {
         throw e // Android stopped the work (Wi-Fi dropped, battery saver); it resumes later
@@ -163,6 +170,16 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
     } finally {
         UploadQueue.progress.update { it - next.mediaId }
+    }
+
+    /** Uploads [next], stopping at once if it leaves the queue meanwhile (cancelled). False when it was. */
+    private suspend fun uploadUnlessCancelled(next: QueuedUpload): Boolean = coroutineScope {
+        val work = async { upload(next) }
+        val cancelled = async { UploadQueue.items.first { list -> list.none { it.mediaId == next.mediaId } } }
+        select {
+            work.onAwait { cancelled.cancel(); true }
+            cancelled.onAwait { work.cancel(); false } // the request is aborted; coroutineScope waits until it has stopped
+        }
     }
 
     /** Shows or updates the upload notification. False when Android won't allow it (app started in the background). */

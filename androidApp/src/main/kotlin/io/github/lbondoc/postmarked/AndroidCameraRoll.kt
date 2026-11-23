@@ -91,6 +91,8 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
 
     override fun upload(tripId: String, items: List<DeviceMedia>) = UploadQueue.add(activity.applicationContext, tripId, items)
 
+    override fun cancel(mediaIds: Set<String>) = UploadQueue.cancel(activity.applicationContext, mediaIds)
+
     override val mobileData: StateFlow<Boolean> = UploadQueue.mobileData
 
     override fun allowMobileData(allowed: Boolean) = UploadQueue.allowMobileData(activity.applicationContext, allowed)

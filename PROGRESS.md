@@ -661,6 +661,58 @@ BLOCKED, and nothing gets deployed from this sandbox.
     for each file in `supabase/migrations`.
   - **Needs manual check:** "Set as trip cover" on a phone, and the trip list card.
 
+## F9 Cancel uploads
+- Changes:
+  - `data/Media.kt`:
+    - `cancelUploads(queue, ids)`, pure. Waiting, uploading and failed items leave; finished ones stay, as
+      SPEC §3.3 says ("Items that already finished stay").
+    - `CameraRoll.cancel(mediaIds)`.
+    - `Media.discardUpload()`, which deletes the item's row if it got that far and every file its kind can
+      have. That's "its partial files are deleted": deleting files that were never sent is harmless, which
+      also covers a file finishing just as the cancel lands.
+  - `androidApp/.../UploadQueue.kt`: `cancel()` removes the items from the saved queue, clears their progress,
+    deletes their scratch copies and calls `discardUpload`.
+  - `androidApp/.../UploadWorker.kt`: each item's upload races a watcher on the queue (`select` over
+    `work.onAwait` and "the item left the queue"). Cancelling therefore aborts the request in flight: the upload
+    coroutine is cancelled, and Ktor cancels the HTTP call. The worker then cleans up once more for the race
+    above. Other lanes and the rest of the queue carry on.
+  - `androidApp/.../AndroidCameraRoll.kt`: `cancel` delegates to `UploadQueue`.
+  - `webApp/.../WebCameraRoll.kt` + `Browser.kt`: one job per item, so cancel can stop it, plus an
+    `AbortController` passed to the XHR. Cancelling a coroutine that awaits a Promise doesn't stop the browser's
+    request by itself, so `abortNow` stops it. Then `discardUpload`. SPEC: "Cancel applies to the web upload
+    too."
+  - `iosMain/.../MainViewController.kt`: stub `cancel`.
+  - `ui/TripScreen.kt`: the queue list on the trip page ("N in the queue · Cancel all", then one row per item
+    with kind, day, "uploading 40%" and Cancel), under the existing progress bar.
+  - `BatchProgressTest.kt`: three new cases, the task's check.
+    - Cancelling waiting items shrinks the batch (1 of 2, 0.5).
+    - Cancelling an item mid-upload drops its partial progress from the bar.
+    - Cancel-all keeps the finished item and removes waiting and failed ones, so the bar disappears.
+
+    The four existing tests are untouched.
+- Approach: the queue is the source of truth. Removing an item is the cancel, and the uploaders react to it,
+  so no new channel between UI and worker was needed. On Android that also works across the process boundary
+  WorkManager may use, since both read `UploadQueue`. I considered cancelling the whole WorkManager job and
+  re-queueing the rest, and rejected it: it restarts every lane and loses in-flight progress of items nobody
+  cancelled.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*BatchProgressTest*'` → `tests="7"
+    skipped="0" failures="0" errors="0"` (4 existing + 3 new).
+  - Web abort in Chromium, using the exact JS from `Browser.kt`: an 8 MB upload to a server that never
+    answers, aborted after 200 ms, resolved with status 0 at 205 ms, and the server saw the connection close.
+    The scratch harness that extracts the JS needed a fix: it mis-parsed parameter lists containing
+    `(Double) -> Unit`. It was a test-tool bug, not an app bug.
+  - All three targets compile (`:androidApp:assembleDebug :webApp:compileKotlinWasmJs
+    :composeApp:compileKotlinIosSimulatorArm64` → `BUILD SUCCESSFUL`).
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - **Needs manual check** on a phone: cancel an upload mid-video, and confirm it stops and its files are gone
+    in Storage.
+  - If the phone is offline when cancelling, the Storage cleanup fails quietly (`// shortcut:` in
+    `UploadQueue.cancel`), and those partial files stay. They're never shown, because no media row points at
+    them.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

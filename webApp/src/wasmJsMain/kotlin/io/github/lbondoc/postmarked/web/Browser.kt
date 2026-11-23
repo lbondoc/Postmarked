@@ -111,9 +111,12 @@ internal fun upload(
     token: String,
     apiKey: String,
     onProgress: (Double) -> Unit,
+    abort: JsAny,
 ): Promise<JsNumber> = js(
     """new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
+        abort.signal.addEventListener('abort', () => xhr.abort());
+        xhr.onabort = () => resolve(0);
         xhr.open('POST', url);
         xhr.setRequestHeader('authorization', 'Bearer ' + token);
         xhr.setRequestHeader('apikey', apiKey);
@@ -125,6 +128,10 @@ internal fun upload(
         xhr.send(body);
     })""",
 )
+
+/** Stops an [upload] in flight when its coroutine is cancelled (a cancelled upload). */
+internal fun abortController(): JsAny = js("new AbortController()")
+internal fun abortNow(controller: JsAny): Unit = js("controller.abort()")
 
 /** Asks before closing the tab while [busy]: uploads on the web only run while the page is open. */
 internal fun warnBeforeLeaving(busy: Boolean): Unit = js(

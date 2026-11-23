@@ -80,7 +80,7 @@ must pass as well.
   null`). Set it from the viewer and show it on the trip list card.
   Check: `./supabase/tests/run.sh` (new `cover_test.sql`: an editor can set it, a viewer can't, media from another
   trip is refused, deleting the media clears it)
-- [ ] **F9 Cancel uploads.** A queue list on the trip page with cancel for one item or all. An upload in
+- [x] **F9 Cancel uploads.** A queue list on the trip page with cancel for one item or all. An upload in
   progress is aborted and its partial files are deleted.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*BatchProgressTest*'` (new cases: cancelling waiting
   or in-progress items updates the totals and finished items stay)

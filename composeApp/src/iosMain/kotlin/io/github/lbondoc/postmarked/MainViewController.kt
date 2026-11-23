@@ -38,6 +38,7 @@ private object IosCameraRoll : CameraRoll {
     override val uploads: StateFlow<List<QueuedUpload>> = MutableStateFlow(emptyList())
     override val uploadProgress: StateFlow<Map<String, Float>> = MutableStateFlow(emptyMap())
     override fun upload(tripId: String, items: List<DeviceMedia>) = Unit
+    override fun cancel(mediaIds: Set<String>) = Unit
     override val mobileData: StateFlow<Boolean> = MutableStateFlow(true)
     override fun allowMobileData(allowed: Boolean) = Unit
 }

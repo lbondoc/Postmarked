@@ -51,4 +51,34 @@ class BatchProgressTest {
         assertEquals(2, progress.total)
         assertEquals(0.5f, progress.fraction)
     }
+
+    @Test
+    fun cancellingWaitingItemsShrinksTheBatch() {
+        val uploads = listOf(upload("a", 10, finished = true), upload("b", 10), upload("c", 10), upload("d", 10))
+        val (kept, cancelled) = cancelUploads(uploads, setOf("c", "d"))
+        assertEquals(listOf("c", "d"), cancelled.map { it.mediaId })
+        val progress = batchProgress(kept, emptyMap())!!
+        assertEquals(1, progress.done)
+        assertEquals(2, progress.total)
+        assertEquals(0.5f, progress.fraction)
+    }
+
+    @Test
+    fun cancellingAnItemMidUploadDropsItsPartialProgress() {
+        val uploads = listOf(upload("a", 10, finished = true), upload("b", 10), upload("c", 10))
+        val (kept, _) = cancelUploads(uploads, setOf("b"))
+        // b was halfway; once cancelled its half no longer moves the bar.
+        val progress = batchProgress(kept, mapOf("b" to 0.5f))!!
+        assertEquals(2, progress.total)
+        assertEquals(0.5f, progress.fraction)
+    }
+
+    @Test
+    fun finishedItemsStayWhenCancellingAll() {
+        val uploads = listOf(upload("a", 10, finished = true), upload("b", 10), upload("c", 10, problem = "too big"))
+        val (kept, cancelled) = cancelUploads(uploads, uploads.map { it.mediaId }.toSet())
+        assertEquals(listOf("a"), kept.map { it.mediaId })
+        assertEquals(listOf("b", "c"), cancelled.map { it.mediaId })
+        assertNull(batchProgress(kept, emptyMap()), "nothing left waiting: the bar goes")
+    }
 }

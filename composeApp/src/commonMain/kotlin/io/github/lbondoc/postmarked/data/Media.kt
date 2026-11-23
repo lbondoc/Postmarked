@@ -107,6 +107,16 @@ fun batchProgress(uploads: List<QueuedUpload>, partial: Map<String, Float>): Bat
     return BatchProgress(done, batch.size, ((done + inFlight) / batch.size).toFloat())
 }
 
+/**
+ * The queue with [ids] cancelled: waiting, uploading and failed items go; finished ones stay (they are in the
+ * gallery, and deleting them is the gallery's job). Returns the new queue and the items cancelled, whose partly
+ * uploaded files the caller removes with [Media.discardUpload].
+ */
+fun cancelUploads(queue: List<QueuedUpload>, ids: Set<String>): Pair<List<QueuedUpload>, List<QueuedUpload>> {
+    val (cancelled, kept) = queue.partition { it.mediaId in ids && !it.finished }
+    return kept to cancelled
+}
+
 class ScanResult(val items: List<DeviceMedia>, val locationAllowed: Boolean)
 
 /** What only the platform can do with the phone's photos: Android today, iOS later. */
@@ -129,6 +139,12 @@ interface CameraRoll {
     val mobileData: StateFlow<Boolean>
 
     fun allowMobileData(allowed: Boolean)
+
+    /**
+     * Cancels these queued items (by media id): one that is uploading stops, and any files it already sent
+     * are deleted. Finished items stay.
+     */
+    fun cancel(mediaIds: Set<String>)
 
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri
@@ -225,6 +241,16 @@ object Media {
         true
     } catch (e: PostgrestRestException) {
         if (e.code == "23505") false else throw e // 23505: Postgres "unique violation"
+    }
+
+    /**
+     * Removes what a cancelled upload left behind: its database row, if it got that far, and every file it may
+     * have sent. Deleting files that were never uploaded is harmless, which covers a file finishing just as the
+     * upload is cancelled.
+     */
+    suspend fun discardUpload(upload: QueuedUpload) {
+        supabase.from("media").delete { filter { eq("id", upload.mediaId) } }
+        deleteFiles(upload.item.kind.files.map { path(upload.tripId, upload.mediaId, it) })
     }
 
     suspend fun deleteFiles(paths: List<String>) {

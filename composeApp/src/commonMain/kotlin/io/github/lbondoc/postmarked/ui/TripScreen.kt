@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.format
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Surface
 import io.github.lbondoc.postmarked.data.myUserId
@@ -279,6 +280,23 @@ fun TripScreen(
                         ) {
                             Switch(checked = mobileData, onCheckedChange = null) // the whole row is the switch
                             Text("Use mobile data")
+                        }
+                    }
+                    // The queue itself: each waiting or uploading item can be cancelled, or all of them.
+                    val queued = mine.filter { it.waiting }
+                    if (queued.isNotEmpty()) Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${queued.size} in the queue", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            TextButton(onClick = { cameraRoll.cancel(queued.map { it.mediaId }.toSet()) }) { Text("Cancel all") }
+                        }
+                        for (upload in queued) Row(verticalAlignment = Alignment.CenterVertically) {
+                            val sent = uploadProgress[upload.mediaId]
+                            Text(
+                                (if (upload.item.kind == MediaKind.Video) "Video" else "Photo") + " · " + upload.item.takenOn.format(DAY) +
+                                    (sent?.let { " · uploading ${(it * 100).toInt()}%" } ?: ""),
+                                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            )
+                            TextButton(onClick = { cameraRoll.cancel(setOf(upload.mediaId)) }) { Text("Cancel") }
                         }
                     }
                     val failed = mine.mapNotNull { it.problem }
