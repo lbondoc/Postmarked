@@ -39,9 +39,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import coil3.SingletonImageLoader
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -54,7 +54,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
-import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import io.github.lbondoc.postmarked.data.Comment
 import io.github.lbondoc.postmarked.data.Media
@@ -121,13 +120,31 @@ fun Viewer(
 
         // Resets on every page change, so the next photo opens at 1×.
         var zoom by remember(pager.currentPage) { mutableStateOf(ZoomState()) }
+        // Links to the full pictures, made for the photo on screen and the ones either side, which are then
+        // downloaded ahead so swiping shows them at once. The bucket is private, so every file needs a signed link.
+        var viewUrls by remember { mutableStateOf(emptyMap<String, String>()) }
+        val context = LocalPlatformContext.current
+        LaunchedEffect(pager.currentPage) {
+            val near = (pager.currentPage - 1..pager.currentPage + 1).mapNotNull { items.getOrNull(it) }
+            for (m in near.filter { it.id !in viewUrls }) {
+                val url = try {
+                    Media.viewUrl(tripId, m)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    continue // the thumbnail stays on screen
+                }
+                viewUrls = viewUrls + (m.id to url)
+                if (m != item && m.kind == MediaKind.Photo) SingletonImageLoader.get(context).enqueue(ImageRequest.Builder(context).data(url).build())
+            }
+        }
 
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             // While zoomed, horizontal drags pan the photo instead of changing photos.
             HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoom.zoomed) { page ->
                 val active = page == pager.currentPage
                 Page(
-                    tripId, items[page], active, thumbnails[items[page].id], videoPlayer,
+                    items[page], active, thumbnails[items[page].id], viewUrls[items[page].id], videoPlayer,
                     zoom = if (active) zoom else ZoomState(), onZoom = { if (active) zoom = it },
                 )
             }
@@ -233,45 +250,35 @@ fun Viewer(
 
 @Composable
 private fun Page(
-    tripId: String,
     item: TripMedia,
     active: Boolean,
     thumbUrl: String?,
+    viewUrl: String?,
     videoPlayer: VideoPlayer,
     zoom: ZoomState,
     onZoom: (ZoomState) -> Unit,
 ) {
-    // The bucket is private, so each page asks for a short-lived link to its file.
-    val url by produceState<String?>(null, item.id) {
-        value = try {
-            Media.viewUrl(tripId, item)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null // the thumbnail stays on screen
-        }
-    }
-    val thumbPath = Media.path(tripId, item.id, MediaKind.THUMB)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val link = url
-        if (item.kind == MediaKind.Video && active && link != null) {
-            videoPlayer(link, Modifier.fillMaxSize()) // only the page on screen plays
+        if (item.kind == MediaKind.Video && active && viewUrl != null) {
+            videoPlayer(viewUrl, Modifier.fillMaxSize()) // only the page on screen plays
         } else {
-            // Photos show the full picture once its link arrives; videos show their thumbnail until they play.
-            val full = item.kind == MediaKind.Photo && link != null
-            val key = if (full) Media.path(tripId, item.id, MediaKind.DISPLAY) else thumbPath
-            AsyncImage(
-                model = ImageRequest.Builder(LocalPlatformContext.current)
-                    .data(if (full) link else thumbUrl)
-                    .memoryCacheKey(key)
-                    .diskCacheKey(key)
-                    // Shows the grid's thumbnail, already in memory, while the full picture loads.
-                    .placeholderMemoryCacheKey(MemoryCache.Key(thumbPath))
-                    .build(),
-                contentDescription = if (item.kind == MediaKind.Video) "Video" else "Photo",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().then(if (item.kind == MediaKind.Photo) Modifier.zoomable(zoom, onZoom) else Modifier),
-            )
+            // The thumbnail at once (usually already cached by the grid), the display picture over it when loaded.
+            // Both are cached by Storage path (StoragePathKeys), so expired links still hit the cache.
+            val layers = Modifier.fillMaxSize().then(if (item.kind == MediaKind.Photo) Modifier.zoomable(zoom, onZoom) else Modifier)
+            Box(layers) {
+                AsyncImage(
+                    model = thumbUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (item.kind == MediaKind.Photo && viewUrl != null) AsyncImage(
+                    model = viewUrl,
+                    contentDescription = "Photo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }

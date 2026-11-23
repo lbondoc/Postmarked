@@ -445,6 +445,45 @@ BLOCKED, and nothing gets deployed from this sandbox.
   zoomed portrait photo can still pan a little into its black bars. That's within SPEC's formula, which uses
   the page size.
 
+## F4 Progressive load and prefetch
+- Changes:
+  - `data/ImageKeys.kt` (new): `storageKey(url)` turns a signed media-bucket link into its Storage path, the same
+    string as `Media.path`, else null. SPEC §4: Coil's caches must key on the path, not the signed URL, whose
+    token changes every time.
+  - `ui/Images.kt` (new): `StoragePathKeys`, a Coil interceptor that applies that key (memory and disk) to every
+    request whose data is a signed link, unless the request already set one. Plus `imageLoader()`, Coil's
+    default builder with it added. Before this, only the grid thumbnail and the viewer set path keys by hand;
+    summaries, the map sheet and exports loaded raw signed URLs, so their caches missed on every new link.
+  - `ui/App.kt`: `setSingletonImageLoaderFactory(::imageLoader)`, so all `AsyncImage`s (Android, web, iOS)
+    share it.
+  - `ui/Viewer.kt`:
+    - The viewer creates signed links for the current photo and its two neighbours, and prefetches the
+      neighbours' display images into the cache. That's the task's "prefetch the neighbours".
+    - Each photo page draws the thumbnail at once with the display image over it, so the display image
+      replaces the thumbnail as soon as it loads ("show the thumb first, swap in the display image"). Before,
+      it relied on `placeholderMemoryCacheKey`, which shows nothing unless the thumbnail is already in memory,
+      as it isn't when the viewer is opened from the map's stop sheet.
+    - Pages no longer each request their own link: the one map serves both display and prefetch.
+  - `ImageKeyTest.kt` (new): the task's check. Two signed URLs for the same path with different tokens give the
+    same key, and it equals `Media.path`. Different files keep different keys, and non-Storage links (Spotify
+    artwork) are left alone.
+- Approach: one interceptor in the shared loader rather than adding `.diskCacheKey()` at every call site.
+  That would be easy to forget in new screens (the summary editor had already missed it). I considered a Coil
+  `Keyer`, but it only sets the memory key, while the disk cache is what matters offline.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*ImageKeyTest*'` → `tests="3" skipped="0"
+    failures="0" errors="0"`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed. The smoke test shows the
+    custom image loader doesn't break the web app's start.
+- Follow-ups: **needs manual check** on a phone:
+  - Swiping to the next photo shows it sharp at once.
+  - Opening the viewer from the map shows the thumbnail before the full picture.
+  - Cached images still show after the links expire (an hour).
+
+  `storageKey` assumes Supabase's signed-URL form `…/object/sign/media/<path>?token=…`. If the form ever
+  changes, it returns null and images fall back to Coil's default keys, not to broken images.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

@@ -21,6 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import coil3.compose.setSingletonImageLoaderFactory
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.lbondoc.postmarked.data.CameraRoll
@@ -60,6 +61,7 @@ fun App(
     exporter: Exporter,
     lastCrash: String? = null,
 ) {
+    setSingletonImageLoaderFactory(::imageLoader) // every image cached by its Storage path
     PostmarkedTheme {
         var crash by remember { mutableStateOf(lastCrash) }
         crash?.let { report ->

@@ -60,7 +60,7 @@ must pass as well.
   function in commonMain.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*ZoomTest*'` (scale is clamped to $[1, 5]$, pan to
   the bounds, and swipe goes to pan when $s > 1$)
-- [ ] **F4 Progressive load and prefetch.** Show the thumb first, swap in the display image, and prefetch the
+- [x] **F4 Progressive load and prefetch.** Show the thumb first, swap in the display image, and prefetch the
   neighbours. Coil cache keys become storage paths.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*ImageKeyTest*'` (two signed URLs for the same path
   give the same cache key)
