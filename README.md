@@ -2,7 +2,7 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: MVP milestone 5 (colour and summaries)
+## Status: MVP complete (milestone 6: export, music, themes)
 
 Milestone 1: sign in, create a trip (name, dates, one or more regions found by place search),
 invite people by QR code or link as editor or viewer, join, leave, delete.
@@ -31,6 +31,15 @@ lay photos out in six layouts (3 × 3, 2 × 3, 1 large + 4 small, filmstrip, pol
 magazine) in four styles: one colour, trip palette gradient, rainbow, or chosen by hand, with
 text and colour tiles. Tiles can be swapped by dragging, and "harmonize colours" gives the
 photos one look (white balance, saturation, split toning) without changing the originals.
+
+Milestone 6: summaries export for Instagram as one post, a carousel, or a 3 × 3 profile grid
+numbered in posting order, at 4:5, 3:4 or square, shared through the share sheet or saved to
+the phone's photos, with a generated caption and hashtags. Trips can carry Spotify songs
+(pasted links; title and artwork from Spotify's link preview). The app has its road-trip look
+(paper and ink, night-drive dark mode, road-sign headings, postmark logo and stamp), and each
+trip an album theme: Auto Palette, Postcard or Film. Themes are JSON files in
+`composeApp/src/commonMain/composeResources/files/themes`; add one by adding a file and its id
+to `index.json`.
 
 ## Layout
 

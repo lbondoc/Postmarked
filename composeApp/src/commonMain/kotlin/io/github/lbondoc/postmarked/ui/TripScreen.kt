@@ -59,6 +59,8 @@ import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.TripRole
+import io.github.lbondoc.postmarked.data.Song
+import io.github.lbondoc.postmarked.data.Songs
 import io.github.lbondoc.postmarked.data.places
 import io.github.lbondoc.postmarked.domain.color.Swatch
 import io.github.lbondoc.postmarked.domain.color.colourName
@@ -85,6 +87,8 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         private set
     var places by mutableStateOf<Map<String, TripArea>>(emptyMap())
         private set
+    var songs by mutableStateOf<List<Song>>(emptyList())
+        private set
 
     // Kept here, not in the screen, so they survive rotating the phone.
     var view by mutableStateOf(GalleryView.All)
@@ -94,7 +98,12 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     var inviteToken by mutableStateOf<String?>(null)
         private set
 
-    fun load() = run { trip = Trips.byId(tripId) }
+    fun load() = run {
+        trip = Trips.byId(tripId)
+        songs = Songs.ofTrip(tripId)
+    }
+
+    fun loadSongs() = run { songs = Songs.ofTrip(tripId) }
 
     fun loadMedia() = run {
         val items = Media.ofTrip(tripId)
@@ -187,6 +196,8 @@ fun TripScreen(
                         Button(onClick = onOpenMap) { Text("Map and route") }
                         Button(onClick = onOpenSummaries) { Text("Summaries") }
                     }
+
+                    SongsSection(trip, vm.songs, onChanged = vm::loadSongs)
 
                     Text("People", style = MaterialTheme.typography.titleMedium)
                     trip.members.sortedBy { it.role }.forEach { member ->

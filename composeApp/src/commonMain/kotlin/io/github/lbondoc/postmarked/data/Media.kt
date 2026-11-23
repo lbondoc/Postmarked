@@ -284,6 +284,10 @@ object Media {
         return signedUrls(tripId, photos.map { it.id }, MediaKind.DISPLAY) + signedUrls(tripId, videos.map { it.id }, MediaKind.POSTER)
     }
 
+    /** The full-size picture a summary tile shows (a video's poster), downloaded for exporting. */
+    suspend fun pictureBytes(tripId: String, item: TripMedia): ByteArray =
+        bucket.downloadAuthenticated(path(tripId, item.id, if (item.kind == MediaKind.Video) MediaKind.POSTER else MediaKind.DISPLAY))
+
     suspend fun reactions(mediaId: String): List<Reaction> =
         supabase.from("reactions").select(Columns.list("user_id", "emoji")) { filter { eq("media_id", mediaId) } }.decodeList()
 

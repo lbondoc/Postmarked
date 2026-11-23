@@ -57,6 +57,7 @@ fun App(
     scanQr: suspend () -> String?,
     cameraRoll: CameraRoll,
     videoPlayer: VideoPlayer,
+    exporter: Exporter,
     lastCrash: String? = null,
 ) {
     PostmarkedTheme {
@@ -74,7 +75,7 @@ fun App(
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer)
+            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter)
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }
@@ -82,7 +83,7 @@ fun App(
 }
 
 @Composable
-private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, videoPlayer: VideoPlayer) {
+private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, videoPlayer: VideoPlayer, exporter: Exporter) {
     val nav = rememberNavController()
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
@@ -118,7 +119,7 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
         }
         composable<SummaryRoute> { entry ->
             val route = entry.toRoute<SummaryRoute>()
-            SummaryEditorScreen(route.tripId, route.summaryId, onBack = { nav.popBackStack() })
+            SummaryEditorScreen(route.tripId, route.summaryId, exporter, onBack = { nav.popBackStack() })
         }
         composable<MapRoute> { entry ->
             MapScreen(tripId = entry.toRoute<MapRoute>().tripId, onBack = { nav.popBackStack() })

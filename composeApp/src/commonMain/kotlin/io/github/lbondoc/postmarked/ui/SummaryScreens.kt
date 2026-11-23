@@ -53,7 +53,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.Routes
+import io.github.lbondoc.postmarked.data.Song
+import io.github.lbondoc.postmarked.data.Songs
 import io.github.lbondoc.postmarked.data.Summaries
+import io.github.lbondoc.postmarked.data.toRoutePoint
+import io.github.lbondoc.postmarked.domain.route.planRoute
 import io.github.lbondoc.postmarked.data.Summary
 import io.github.lbondoc.postmarked.data.SummaryTile
 import io.github.lbondoc.postmarked.data.Trip
@@ -168,6 +172,8 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         private set
     var miles by mutableStateOf<Int?>(null)
         private set
+    var songs by mutableStateOf<List<Song>>(emptyList())
+        private set
 
     val layout get() = Layout.entries.firstOrNull { it.name == summary?.layout } ?: Layout.Grid3x3
     val mode get() = SummaryMode.entries.firstOrNull { it.name == summary?.mode } ?: SummaryMode.Manual
@@ -176,6 +182,7 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         val m = loadMaterial(tripId)
         material = m
         summary = summaryId?.let { Summaries.get(it) } ?: build(m, SummaryMode.Monochrome, Layout.Grid3x3, focus = null)
+        songs = Songs.ofTrip(tripId)
         // Miles need the road route, which can be slow or unavailable; the summary works without them.
         miles = try {
             (Routes.build(tripId).days.sumOf { it.meters } / METERS_PER_MILE).roundToInt()
@@ -252,6 +259,7 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
 fun SummaryEditorScreen(
     tripId: String,
     summaryId: String?,
+    exporter: Exporter,
     onBack: () -> Unit,
     vm: SummaryEditorViewModel = viewModel(key = "summary-$summaryId") { SummaryEditorViewModel(tripId, summaryId) },
 ) {
@@ -260,6 +268,7 @@ fun SummaryEditorScreen(
     var picking by remember { mutableStateOf<((List<String>) -> Unit)?>(null) }
     var pickMany by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
     val material = vm.material
     val summary = vm.summary
     val role = material?.trip?.myRole
@@ -271,7 +280,11 @@ fun SummaryEditorScreen(
             TopAppBar(
                 title = { Text(summary?.name ?: "Summary") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                actions = { if (canEdit) TextButton(onClick = { vm.save(onBack) }, enabled = !vm.busy && summary?.name?.isNotBlank() == true) { Text("Save") } },
+                actions = {
+                    // Anyone on the trip can export; only those who may change it can save.
+                    if (summary != null && material != null) TextButton(onClick = { exporting = true }) { Text("Export") }
+                    if (canEdit) TextButton(onClick = { vm.save(onBack) }, enabled = !vm.busy && summary?.name?.isNotBlank() == true) { Text("Save") }
+                },
             )
         },
     ) { insets ->
@@ -330,6 +343,15 @@ fun SummaryEditorScreen(
     }
     picking?.let { onPicked ->
         if (material != null) PhotoPicker(material, many = pickMany, onDone = { ids -> picking = null; if (ids.isNotEmpty()) onPicked(ids) })
+    }
+    if (exporting && material != null && summary != null) {
+        val look = rememberAlbumLook(material.trip, material.media, forExport = true)
+        if (look != null) ExportSheet(
+            material, summary, vm.layout, look, vm.songs, vm.miles,
+            stops = remember(material.media) { planRoute(material.media.mapNotNull { it.toRoutePoint() }).stops.size },
+            exporter = exporter,
+            onClose = { exporting = false },
+        )
     }
     if (confirmingDelete) AlertDialog(
         onDismissRequest = { confirmingDelete = false },

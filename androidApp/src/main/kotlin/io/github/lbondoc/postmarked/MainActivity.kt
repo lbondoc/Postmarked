@@ -20,10 +20,11 @@ class MainActivity : ComponentActivity() {
         // does not redeem the same invite link a second time.
         if (savedInstanceState == null) readInvite(intent)
         val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
+        val exporter = AndroidExporter(this)
         // Shown once: the file is removed as soon as it is read.
         val lastCrash = crashReport(this).takeIf { it.exists() }?.let { file -> file.readText().also { file.delete() } }
         setContent {
-            App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, videoPlayer = { url, modifier -> VideoPlayer(url, modifier) }, lastCrash = lastCrash)
+            App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, videoPlayer = { url, modifier -> VideoPlayer(url, modifier) }, exporter = exporter, lastCrash = lastCrash)
         }
     }
 

@@ -41,6 +41,16 @@
                 <data android:scheme="postmarked" android:host="join" />
             </intent-filter>
         </activity>
+        <!-- Hands exported images to the app they're shared with, and nothing else (see res/xml/file_paths.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- WorkManager's own service for foreground work; Android 14+ needs its type declared. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
