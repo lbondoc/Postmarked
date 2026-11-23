@@ -1,5 +1,16 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.center
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.toSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -108,9 +119,17 @@ fun Viewer(
             }
         }
 
+        // Resets on every page change, so the next photo opens at 1×.
+        var zoom by remember(pager.currentPage) { mutableStateOf(ZoomState()) }
+
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                Page(tripId, items[page], active = page == pager.currentPage, thumbnails[items[page].id], videoPlayer)
+            // While zoomed, horizontal drags pan the photo instead of changing photos.
+            HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoom.zoomed) { page ->
+                val active = page == pager.currentPage
+                Page(
+                    tripId, items[page], active, thumbnails[items[page].id], videoPlayer,
+                    zoom = if (active) zoom else ZoomState(), onZoom = { if (active) zoom = it },
+                )
             }
             Row(Modifier.fillMaxWidth().background(SCRIM).systemBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Close", color = Color.White) }
@@ -213,7 +232,15 @@ fun Viewer(
 }
 
 @Composable
-private fun Page(tripId: String, item: TripMedia, active: Boolean, thumbUrl: String?, videoPlayer: VideoPlayer) {
+private fun Page(
+    tripId: String,
+    item: TripMedia,
+    active: Boolean,
+    thumbUrl: String?,
+    videoPlayer: VideoPlayer,
+    zoom: ZoomState,
+    onZoom: (ZoomState) -> Unit,
+) {
     // The bucket is private, so each page asks for a short-lived link to its file.
     val url by produceState<String?>(null, item.id) {
         value = try {
@@ -243,8 +270,49 @@ private fun Page(tripId: String, item: TripMedia, active: Boolean, thumbUrl: Str
                     .build(),
                 contentDescription = if (item.kind == MediaKind.Video) "Video" else "Photo",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(if (item.kind == MediaKind.Photo) Modifier.zoomable(zoom, onZoom) else Modifier),
             )
         }
     }
+}
+
+/**
+ * Pinch and double-tap zoom for the viewer's photo, with the clamping in [ZoomState]. One-finger drags are
+ * taken only while zoomed; at 1× they are left for the pager, so swiping still changes photos.
+ */
+@Composable
+private fun Modifier.zoomable(zoom: ZoomState, onZoom: (ZoomState) -> Unit): Modifier {
+    val latest by rememberUpdatedState(zoom)
+    val update by rememberUpdatedState(onZoom)
+    return this
+        .pointerInput(Unit) {
+            detectTapGestures(onDoubleTap = { at -> update(latest.doubleTapped(at - size.toSize().center, size.toSize())) })
+        }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                var state = latest // several events can arrive before the next recomposition
+                do {
+                    val event = awaitPointerEvent()
+                    val page = size.toSize()
+                    val next = if (event.changes.count { it.pressed } > 1) {
+                        state.transformed(event.calculateZoom(), event.calculatePan(), event.calculateCentroid() - page.center, page)
+                    } else {
+                        state.swipe(event.calculatePan(), page)
+                    }
+                    if (next != null) {
+                        state = next
+                        update(next)
+                        event.changes.forEach { it.consume() }
+                    }
+                } while (event.changes.any { it.pressed })
+            }
+        }
+        // Inside the gesture handlers, so they see the screen's coordinates rather than the zoomed picture's.
+        .graphicsLayer {
+            scaleX = zoom.scale
+            scaleY = zoom.scale
+            translationX = zoom.pan.x
+            translationY = zoom.pan.y
+        }
 }

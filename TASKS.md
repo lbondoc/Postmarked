@@ -56,7 +56,7 @@ must pass as well.
   gallery filter and in the summary's hand-picked colours.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` (a new case: a wheel colour with
   matches filters to exactly those photos, and one with no matches has count 0)
-- [ ] **F3 Viewer zoom.** Pinch and double-tap zoom with pan clamping (SPEC §3.1). The clamp math is a pure
+- [x] **F3 Viewer zoom.** Pinch and double-tap zoom with pan clamping (SPEC §3.1). The clamp math is a pure
   function in commonMain.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*ZoomTest*'` (scale is clamped to $[1, 5]$, pan to
   the bounds, and swipe goes to pan when $s > 1$)

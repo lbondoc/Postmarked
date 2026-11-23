@@ -401,6 +401,50 @@ BLOCKED, and nothing gets deployed from this sandbox.
   colour panel on a phone. There are no UI tests in this repo. A wheel colour picked in a summary is stored by
   hex like any other, so saved summaries need no change.
 
+## F3 Viewer zoom
+- Changes:
+  - `ui/Zoom.kt` (new): `ZoomState(scale, pan)` with `transformed` (a pinch about the fingers' centroid),
+    `doubleTapped` ($1\times \leftrightarrow 2.5\times$ around the tap) and `swipe` (pans when zoomed; returns
+    null at 1×, meaning the pager takes the swipe). Plus `clampPan`, implementing SPEC §3.1's
+    $|t_x| \le \frac{(s-1)W}{2}$, $|t_y| \le \frac{(s-1)H}{2}$. Scale is clamped to $[1, 5]$. The task asks
+    for the clamp math as a pure commonMain function, so all the decisions live here and the gesture code only
+    forwards events. The constants are prefixed `VIEWER_`: `MAX_ZOOM` already exists in `SummaryCanvas.kt`
+    for the crop editor (4×), and the two limits are deliberately different.
+  - `ui/Viewer.kt`:
+    - The zoom state is held per current page (`remember(pager.currentPage)`), so it resets on every photo
+      change, as SPEC asks.
+    - `HorizontalPager(userScrollEnabled = !zoom.zoomed)`, so horizontal swipes pan instead of paging while
+      zoomed.
+    - A `zoomable` modifier on photos only (videos play in the platform player): a pinch always zooms, a
+      one-finger drag goes through `swipe()`, and a double-tap goes through `doubleTapped()`.
+    - The `graphicsLayer` sits inside the pointer handlers, so they read screen coordinates, which the math
+      assumes.
+  - `ZoomTest.kt` (new): the task's check.
+    - Scale clamped at 5 and at 1.
+    - Pan clamped to $(s-1)W/2$ and $(s-1)H/2$, including a huge pinch-pan, with nothing movable at 1×.
+    - Zooming back to 1× recentres.
+    - A pinch keeps the content point under the fingers.
+    - Swipe returns null at 1× and pans (clamped) when zoomed.
+    - Double-tap zooms to 2.5× keeping the tapped point and toggles back.
+- Approach: I wrote the gesture loop by hand (`awaitEachGesture`) instead of `detectTransformGestures`, which
+  consumes every one-finger drag. That would have stopped the pager from swiping at 1×, breaking the
+  existing swipe-between-photos. I considered a zoom library and rejected it: it would be a new dependency, and
+  SPEC rules out unnecessary ones.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*ZoomTest*'` → `tests="6" skipped="0"
+    failures="0" errors="0"`.
+  - The rebuilt APK contains `ZoomState` (11 hits in its dex files).
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check** on a phone:
+  - Pinch, double-tap and panning feel right.
+  - Swiping still changes photos at 1×.
+  - Zoom resets on the next photo.
+
+  The clamp keeps the photo's box on screen. Because the picture is letterboxed (`ContentScale.Fit`), a
+  zoomed portrait photo can still pan a little into its black bars. That's within SPEC's formula, which uses
+  the page size.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).
