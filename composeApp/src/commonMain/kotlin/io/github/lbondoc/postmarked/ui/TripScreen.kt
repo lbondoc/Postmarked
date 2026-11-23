@@ -160,6 +160,11 @@ fun TripScreen(
         if (vm.view == GalleryView.Stops) planRoute(vm.media.mapNotNull { it.toRoutePoint() }).stops.map { it.at } else emptyList()
     }
     val stopNames = rememberStopNames(stopPoints)
+    // Each item's stop for the viewer's info panel, numbered as in the Stops view.
+    val stopTitles = remember(vm.media, stopNames) {
+        planRoute(vm.media.mapNotNull { it.toRoutePoint() }).stops
+            .flatMapIndexed { index, stop -> stop.ids.map { it to stopTitle(index, stopNames) } }.toMap()
+    }
 
     Scaffold(
         topBar = {
@@ -249,6 +254,8 @@ fun TripScreen(
             start = index,
             thumbnails = vm.thumbnails,
             videoPlayer = videoPlayer,
+            tripStart = trip?.startDate,
+            stopTitles = stopTitles,
             onDeleted = {
                 viewing = null
                 vm.loadMedia()

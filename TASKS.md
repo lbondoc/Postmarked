@@ -64,7 +64,7 @@ must pass as well.
   neighbours. Coil cache keys become storage paths.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*ImageKeyTest*'` (two signed URLs for the same path
   give the same cache key)
-- [ ] **F5 Info panel.**
+- [x] **F5 Info panel.**
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*MediaInfoTest*'` (`infoLines()` gives the person,
   local time, Day N, stop name and place, and leaves out missing fields)
 - [ ] **F6 Share one photo, and save to phone.** The viewer shares through the share sheet or Web Share.

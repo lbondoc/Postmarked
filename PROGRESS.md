@@ -484,6 +484,44 @@ BLOCKED, and nothing gets deployed from this sandbox.
   `storageKey` assumes Supabase's signed-URL form `…/object/sign/media/<path>?token=…`. If the form ever
   changes, it returns null and images fall back to Coil's default keys, not to broken images.
 
+## F5 Info panel
+- Changes:
+  - `ui/MediaInfo.kt` (new): `infoLines(item, tripStart, stop, place, pixels, bytes, seconds)`. It gives
+    "Taken by …", the local time (the viewer's existing `MOMENT` format, in the zone where it was taken),
+    "Day N", the stop title, "Near <place>", then "W × H px · size" for photos or "m:ss · size" for videos.
+    Missing fields are dropped, including "Day N" for items taken before the trip started. The task names
+    `infoLines()` and its behaviour.
+  - `data/Media.kt`: `Media.fileSize()`, the original photo's or video's size from Storage's file info
+    (`bucket.info`). SPEC lists file size, and the database has no size column.
+  - `ui/Viewer.kt`: an "ⓘ Info" / "Hide info" toggle beside Comments. When on, the bottom bar shows the info
+    lines in place of the usual "name · time" line. The place name comes from the existing cached
+    `placeName()` reverse lookup, and the file size from Storage. Each fills in when its lookup finishes.
+    New parameters `tripStart` and `stopTitles`.
+  - `ui/TripScreen.kt`: passes the trip's start date, and each item's stop title computed from the same
+    `planRoute` the Stops view uses, so numbers match. Names appear where they've been looked up.
+  - `MediaInfoTest.kt` (new): the task's check.
+    - All six lines in order, for a photo whose UTC time falls on the next day (local time and Day N follow
+      the taken-there zone).
+    - Missing person, stop and place are left out.
+    - No "Day 0".
+    - A video shows its length instead of pixels.
+- Approach: a pure line builder plus a thin composable, the same split the codebase uses for gallery
+  sections. I chose a toggle over SPEC's "or swiping up": the bottom bar already swipes horizontally with the
+  pager and vertically with the comments sheet, and a second vertical gesture there would fight the sheet.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*MediaInfoTest*'` → `tests="3" skipped="0"
+    failures="0" errors="0"`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - Pixel size and video length are supported by `infoLines` but not yet shown. Neither is stored (no
+    columns), and reading them means downloading the original. A follow-up could save width, height and
+    duration at upload in a migration.
+  - **Needs manual check:** the panel on a phone. The file size depends on Storage's `info` endpoint
+    answering for members.
+  - Stop names only exist for stops someone has looked up (in the Stops view or on the map). Other stops show
+    "Stop N".
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

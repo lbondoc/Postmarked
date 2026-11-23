@@ -247,6 +247,10 @@ object Media {
     suspend fun viewUrl(tripId: String, item: TripMedia): String =
         signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
 
+    /** The size in bytes of the item's main file (the original photo, or the video), for the info panel. */
+    suspend fun fileSize(tripId: String, item: TripMedia): Long? =
+        bucket.info(path(tripId, item.id, if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL)).size
+
     /** Removes one of your own items: the row first, so the gallery never shows an item whose files are gone. */
     suspend fun delete(tripId: String, item: TripMedia) {
         supabase.from("media").delete { filter { eq("id", item.id) } }

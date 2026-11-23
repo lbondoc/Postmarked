@@ -1,5 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.LocalDate
+import io.github.lbondoc.postmarked.data.placeName
+import androidx.compose.runtime.produceState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -88,6 +91,10 @@ fun Viewer(
     start: Int,
     thumbnails: Map<String, String>,
     videoPlayer: VideoPlayer,
+    /** For "Day N" in the info panel. */
+    tripStart: LocalDate?,
+    /** Each item's stop ("Stop 3 · Big Sur"), by media id. */
+    stopTitles: Map<String, String>,
     onDeleted: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -100,6 +107,7 @@ fun Viewer(
         var comments by remember(item.id) { mutableStateOf<List<Comment>>(emptyList()) }
         var problem by remember(item.id) { mutableStateOf<String?>(null) }
         var showComments by remember { mutableStateOf(false) }
+        var showInfo by remember { mutableStateOf(false) }
         var confirmingDelete by remember { mutableStateOf(false) }
 
         fun act(block: suspend () -> Unit) = scope.launch {
@@ -159,7 +167,9 @@ fun Viewer(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().background(SCRIM).systemBarsPadding().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
+                if (showInfo) Info(tripId, item, tripStart, stopTitles[item.id]) else {
+                    Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
+                }
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (emoji in REACTIONS) {
@@ -183,7 +193,10 @@ fun Viewer(
                         )
                     }
                 }
-                TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size})", color = Color.White) }
+                Row {
+                    TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size})", color = Color.White) }
+                    TextButton(onClick = { showInfo = !showInfo }) { Text(if (showInfo) "Hide info" else "ⓘ Info", color = Color.White) }
+                }
             }
         }
 
@@ -245,6 +258,24 @@ fun Viewer(
                 dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
             )
         }
+    }
+}
+
+/** Who, when, which day and stop, where, and how big: the lines from [infoLines], filling in as lookups finish. */
+@Composable
+private fun Info(tripId: String, item: TripMedia, tripStart: LocalDate?, stop: String?) {
+    val place by produceState<String?>(null, item.id) { value = item.location?.let { placeName(it) } }
+    val bytes by produceState<Long?>(null, item.id) {
+        value = try {
+            Media.fileSize(tripId, item)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null // left out of the panel
+        }
+    }
+    Column {
+        for (line in infoLines(item, tripStart, stop, place, bytes = bytes)) Text(line, color = Color.White)
     }
 }
 
