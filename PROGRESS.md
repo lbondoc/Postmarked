@@ -522,6 +522,63 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Stop names only exist for stops someone has looked up (in the Stops view or on the map). Other stops show
     "Stop N".
 
+## F6 Share one photo, and save to phone
+- Changes:
+  - `data/PhotoSaver.kt` (new):
+    - The `PhotoSaver` interface the task names, with `save` and `share` of a `SavedFile` (a signed link,
+      name and kind). The platform only needs a link, and streaming one keeps a 50 MB video out of memory.
+    - `saveEach`, which saves several one after another, reporting progress, counting failures without
+      stopping, and stopping before the next item when cancelled. That's "saving several shows progress and
+      can be cancelled".
+    - `extensionFor(mime)`, because originals can be JPEG or HEIC and videos MP4 or MOV.
+  - `data/Media.kt`: `savedFile()`, a 1-hour signed link to the original photo or `video.mp4`, named
+    `postmarked-<local yyyyMMdd-HHmmss>-<id>`. SPEC says "the original photo or `video.mp4`".
+  - `ui/Saving.kt` (new): `SaveJob` (start, cancel, progress) and `SavingBar` ("Saving 2 of 5" with Cancel and a
+    progress bar, then "Saved N" or "N couldn't be saved"). F7's multi-select reuses them for several items.
+  - `ui/Viewer.kt`: Share and Save buttons in the top bar, and the saving bar above the reactions.
+  - `ui/App.kt`, `ui/TripScreen.kt`: pass a `photoSaver` from the platform to the viewer, the same way
+    `exporter` and `videoPlayer` already flow.
+  - `androidApp/.../AndroidPhotoSaver.kt` (new) + `MainActivity.kt`:
+    - Saving streams the link into MediaStore under `Pictures/Postmarked` (Images or Video collection,
+      `IS_PENDING` until complete, deleted if it fails or is cancelled), as `AndroidExporter` already does for
+      summaries.
+    - Sharing downloads into `cache/exports/shared` (inside the existing FileProvider path) and opens the
+      share sheet.
+    - The copy loop checks for cancellation between 64 KB chunks.
+  - `webApp/.../WebPhotoSaver.kt` (new) + `Browser.kt` + `Main.kt`: fetch the file as a Blob. Save downloads it.
+    Share uses Web Share with the file where `navigator.canShare({files})` allows, else downloads.
+  - `iosMain/.../MainViewController.kt`: `IosPhotoSaver` stub, marked `// shortcut:` and saying "Not available
+    on iOS yet", as SPEC §1.3 asks.
+  - `SaveEachTest.kt` (new):
+    - Progress after each item, and a failure counted without stopping the rest.
+    - Cancelling while item 2 is saving means item 3 never starts.
+    - File extensions from MIME types.
+
+    It uses plain coroutine starts, not `kotlinx-coroutines-test`, to avoid adding a test dependency.
+- Approach: links rather than bytes across the platform boundary. I considered downloading in common code with
+  `downloadAuthenticated` (a ByteArray) and handing bytes to the platform, and rejected it: it holds whole
+  videos in memory, and on the web it means copying them into wasm.
+- Verification:
+  - Task check `./gradlew :androidApp:assembleDebug :composeApp:compileKotlinWasmJs` → `BUILD SUCCESSFUL`, then
+    `node web/smoke.mjs` → passed. iOS also compiles (`:composeApp:compileKotlinIosSimulatorArm64` →
+    `BUILD SUCCESSFUL`).
+  - `SaveEachTest` → `tests="3" … failures="0"`.
+  - Web glue in Chromium, with the exact JS bodies from `Browser.kt`:
+    - `fetchBlob` returned the 253 920-byte JPEG with type `image/jpeg`, and a 404 rejected with
+      "Download failed (404)".
+    - `shareBlob` returned false in desktop headless Chromium, so the code falls back to a download.
+    - `downloadBlob` produced a download named `postmarked-20261003-182200-abcd1234.jpg` whose bytes match the
+      file.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`.
+- Follow-ups: **needs manual check (the task's own):**
+  - On the phone, a saved photo appears in Pictures/Postmarked.
+  - Share opens the share sheet with the file.
+  - On the web, Save downloads and Share uses Web Share on a phone browser.
+
+  Downloads depend on Supabase Storage allowing the site's origin for `fetch` (CORS). Storage allows all
+  origins by default.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

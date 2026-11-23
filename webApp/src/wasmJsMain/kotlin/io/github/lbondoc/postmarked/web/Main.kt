@@ -16,6 +16,7 @@ fun main() {
             cameraRoll = WebCameraRoll,
             videoPlayer = { url, modifier -> WebVideo(url, modifier) },
             exporter = WebExporter,
+            photoSaver = WebPhotoSaver,
         )
     }
 }

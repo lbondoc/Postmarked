@@ -154,3 +154,31 @@ internal fun shareFiles(files: JsArray<JsAny>, text: String): Boolean = js(
 )
 
 internal fun namedBytes(name: String, bytes: JsAny): JsAny = js("({ name: name, bytes: bytes })")
+
+/** Downloads [url] as a Blob, failing on an HTTP error. */
+internal fun fetchBlob(url: String): Promise<JsAny> =
+    js("fetch(url).then((r) => r.ok ? r.blob() : Promise.reject(new Error('Download failed (' + r.status + ')')))")
+
+internal fun blobType(blob: JsAny): String = js("blob.type || ''")
+
+/** Saves [blob] as a download named [name]. */
+internal fun downloadBlob(blob: JsAny, name: String): Unit = js(
+    """(() => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    })()""",
+)
+
+/** Web Share with the file where the browser can share files (phones). False when it can't. */
+internal fun shareBlob(blob: JsAny, name: String): Boolean = js(
+    """(() => {
+        const file = new File([blob], name, { type: blob.type });
+        if (!navigator.canShare || !navigator.canShare({ files: [file] })) return false;
+        navigator.share({ files: [file] }).catch(() => {});
+        return true;
+    })()""",
+)

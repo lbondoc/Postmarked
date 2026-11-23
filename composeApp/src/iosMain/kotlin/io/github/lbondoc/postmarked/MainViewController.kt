@@ -6,6 +6,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.window.ComposeUIViewController
 import io.github.lbondoc.postmarked.data.CameraRoll
 import io.github.lbondoc.postmarked.data.DeviceMedia
+import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.SavedFile
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.ScanResult
 import io.github.lbondoc.postmarked.ui.App
@@ -23,6 +25,7 @@ fun MainViewController() = ComposeUIViewController {
         cameraRoll = IosCameraRoll,
         videoPlayer = { _, modifier -> Box(modifier, Alignment.Center) { Text(NOT_YET) } },
         exporter = IosExporter,
+        photoSaver = IosPhotoSaver,
     )
 }
 
@@ -46,4 +49,10 @@ private object IosExporter : Exporter {
     override fun openInstagram() = false
     override suspend fun save(images: List<ExportedImage>) = throw UnsupportedOperationException(NOT_YET)
     override fun copy(text: String) = Unit
+}
+
+// shortcut: stub, implement when a Mac is available
+private object IosPhotoSaver : PhotoSaver {
+    override suspend fun save(file: SavedFile) = throw UnsupportedOperationException(NOT_YET)
+    override suspend fun share(file: SavedFile) = throw UnsupportedOperationException(NOT_YET)
 }

@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.number
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -246,6 +247,17 @@ object Media {
     /** A link to the full-size picture, or to the video itself. */
     suspend fun viewUrl(tripId: String, item: TripMedia): String =
         signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
+
+    /** The item's own file, the original photo or the video, to save or share; named by when it was taken. */
+    suspend fun savedFile(tripId: String, item: TripMedia): SavedFile {
+        val file = if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL
+        val url = bucket.createSignedUrl(path(tripId, item.id, file), 1.hours)
+        val t = item.localTime
+        val stamp = "${t.year}${pad(t.month.number)}${pad(t.day)}-${pad(t.hour)}${pad(t.minute)}${pad(t.second)}"
+        return SavedFile(url, "postmarked-$stamp-${item.id.take(8)}", item.kind)
+    }
+
+    private fun pad(n: Int) = n.toString().padStart(2, '0')
 
     /** The size in bytes of the item's main file (the original photo, or the video), for the info panel. */
     suspend fun fileSize(tripId: String, item: TripMedia): Long? =

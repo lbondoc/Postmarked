@@ -2,6 +2,7 @@ package io.github.lbondoc.postmarked.ui
 
 import kotlinx.datetime.LocalDate
 import io.github.lbondoc.postmarked.data.placeName
+import io.github.lbondoc.postmarked.data.PhotoSaver
 import androidx.compose.runtime.produceState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -91,6 +92,7 @@ fun Viewer(
     start: Int,
     thumbnails: Map<String, String>,
     videoPlayer: VideoPlayer,
+    photoSaver: PhotoSaver,
     /** For "Day N" in the info panel. */
     tripStart: LocalDate?,
     /** Each item's stop ("Stop 3 · Big Sur"), by media id. */
@@ -108,6 +110,7 @@ fun Viewer(
         var problem by remember(item.id) { mutableStateOf<String?>(null) }
         var showComments by remember { mutableStateOf(false) }
         var showInfo by remember { mutableStateOf(false) }
+        val saving = remember { SaveJob(scope) }
         var confirmingDelete by remember { mutableStateOf(false) }
 
         fun act(block: suspend () -> Unit) = scope.launch {
@@ -161,6 +164,11 @@ fun Viewer(
                 Spacer(Modifier.weight(1f))
                 Text("${pager.currentPage + 1} of ${items.size}", color = Color.White)
                 Spacer(Modifier.weight(1f))
+                // The photo's own file (the original, or the video): through the share sheet, or saved to the device.
+                TextButton(onClick = { act { photoSaver.share(Media.savedFile(tripId, item)) } }) { Text("Share", color = Color.White) }
+                TextButton(onClick = { saving.start(tripId, listOf(item), photoSaver) }, enabled = saving.progress?.finished != false) {
+                    Text("Save", color = Color.White)
+                }
                 if (item.contributor == myUserId) TextButton(onClick = { confirmingDelete = true }) { Text("Delete", color = Color.White) }
             }
             Column(
@@ -170,6 +178,7 @@ fun Viewer(
                 if (showInfo) Info(tripId, item, tripStart, stopTitles[item.id]) else {
                     Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
                 }
+                SavingBar(saving, Color.White)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (emoji in REACTIONS) {

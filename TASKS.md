@@ -67,7 +67,7 @@ must pass as well.
 - [x] **F5 Info panel.**
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*MediaInfoTest*'` (`infoLines()` gives the person,
   local time, Day N, stop name and place, and leaves out missing fields)
-- [ ] **F6 Share one photo, and save to phone.** The viewer shares through the share sheet or Web Share.
+- [x] **F6 Share one photo, and save to phone.** The viewer shares through the share sheet or Web Share.
   `PhotoSaver`: MediaStore on Android, download on web, stub on iOS. Saving several shows progress and can be
   cancelled.
   Check: `./gradlew :androidApp:assembleDebug :composeApp:compileKotlinWasmJs && node web/smoke.mjs`, then a

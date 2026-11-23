@@ -21,10 +21,11 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) readInvite(intent)
         val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
         val exporter = AndroidExporter(this)
+        val photoSaver = AndroidPhotoSaver(this)
         // Shown once: the file is removed as soon as it is read.
         val lastCrash = crashReport(this).takeIf { it.exists() }?.let { file -> file.readText().also { file.delete() } }
         setContent {
-            App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, videoPlayer = { url, modifier -> VideoPlayer(url, modifier) }, exporter = exporter, lastCrash = lastCrash)
+            App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, videoPlayer = { url, modifier -> VideoPlayer(url, modifier) }, exporter = exporter, photoSaver = photoSaver, lastCrash = lastCrash)
         }
     }
 

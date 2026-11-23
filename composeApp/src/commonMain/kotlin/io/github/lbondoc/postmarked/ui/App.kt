@@ -25,6 +25,7 @@ import coil3.compose.setSingletonImageLoaderFactory
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.lbondoc.postmarked.data.CameraRoll
+import io.github.lbondoc.postmarked.data.PhotoSaver
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.supabase
 import io.github.lbondoc.postmarked.data.userMessage
@@ -59,6 +60,7 @@ fun App(
     cameraRoll: CameraRoll,
     videoPlayer: VideoPlayer,
     exporter: Exporter,
+    photoSaver: PhotoSaver,
     lastCrash: String? = null,
 ) {
     setSingletonImageLoaderFactory(::imageLoader) // every image cached by its Storage path
@@ -77,7 +79,7 @@ fun App(
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter)
+            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter, photoSaver)
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }
@@ -85,7 +87,14 @@ fun App(
 }
 
 @Composable
-private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, videoPlayer: VideoPlayer, exporter: Exporter) {
+private fun SignedIn(
+    onShare: (String) -> Unit,
+    scanQr: suspend () -> String?,
+    cameraRoll: CameraRoll,
+    videoPlayer: VideoPlayer,
+    exporter: Exporter,
+    photoSaver: PhotoSaver,
+) {
     val nav = rememberNavController()
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
@@ -113,6 +122,7 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
                 onOpenSummaries = { nav.navigate(SummariesRoute(tripId)) },
                 onShare = onShare,
                 videoPlayer = videoPlayer,
+                photoSaver = photoSaver,
             )
         }
         composable<SummariesRoute> { entry ->

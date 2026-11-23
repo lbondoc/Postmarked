@@ -61,6 +61,7 @@ import io.github.lbondoc.postmarked.data.places
 import io.github.lbondoc.postmarked.domain.color.Swatch
 import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
+import io.github.lbondoc.postmarked.data.PhotoSaver
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.toRoutePoint
@@ -136,6 +137,7 @@ fun TripScreen(
     onOpenSummaries: () -> Unit,
     onShare: (String) -> Unit,
     videoPlayer: VideoPlayer,
+    photoSaver: PhotoSaver,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
 ) {
     var choosingRole by remember { mutableStateOf(false) }
@@ -254,6 +256,7 @@ fun TripScreen(
             start = index,
             thumbnails = vm.thumbnails,
             videoPlayer = videoPlayer,
+            photoSaver = photoSaver,
             tripStart = trip?.startDate,
             stopTitles = stopTitles,
             onDeleted = {
