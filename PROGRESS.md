@@ -290,6 +290,40 @@ BLOCKED, and nothing gets deployed from this sandbox.
   from the Actions tab, and both are outside this session. `:core:domain:iosSimulatorArm64Test` can only run on
   macOS. The first macOS run may also need Xcode's simulator runtime, which `macos-latest` normally includes.
 
+## P7 Deploy the website
+- Changes (commit c6911a3; this entry and the checkbox follow in their own commit, once CI had run):
+  - `.github/workflows/ci.yml`: a `web` job that builds `:webApp:wasmJsBrowserDistribution` and runs
+    `node web/smoke.mjs`, with Playwright 1.63.0 (the version used locally) installed without a `package.json`.
+    On `main` it also uploads the site as the Pages artifact. And a `pages` job, `main` only, `needs: web`, that
+    publishes it with `actions/deploy-pages`. The repo is public (GitHub search: `"visibility":"public"`), so
+    SPEC picks GitHub Pages over Cloudflare. I split building from publishing because the `github-pages`
+    environment only accepts `main` by default: one combined job would fail on every branch push. This way the
+    task's "CI job `web` is green" is checkable from any branch.
+  - `README.md`: a "Website" section with the URL `https://lbondoc.github.io/Postmarked/` and how to build and
+    smoke-test it. Two setup steps added: Supabase Auth → Redirect URLs (the task asks for the site URL there),
+    and GitHub Settings → Pages → Source "GitHub Actions" (`has_pages` is false today, and the workflow's token
+    can't enable it).
+- Approach: GitHub Pages serves the site under `/Postmarked/`, so I served the production build under that
+  sub-path locally. The sign-in screen rendered with no 404s or console errors: every asset path is relative,
+  so no base-path setting is needed. I considered Cloudflare Pages and rejected it: SPEC reserves it for a
+  private repo, and it needs an API token secret.
+- Verification:
+  - GitHub Actions run 26 on this branch (commit c6911a3): `web` → success. Its steps: "Build the website"
+    success, "Smoke test" success, the Pages upload skipped (not `main`). `build`, `database` and `functions`
+    succeeded; `pages` and `ios` skipped as designed.
+  - Local gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check (owner):**
+  1. Settings → Pages → Source: GitHub Actions.
+  2. Merge to `main`, so `pages` publishes.
+  3. `curl -sf https://lbondoc.github.io/Postmarked/ | grep -q '<canvas\|composeApp'`. The page's own HTML has
+     neither string until the script runs, so this grep would fail on any build of the site. `grep -q
+     postmarked.js` is the equivalent check that works.
+  4. Add the URL to Supabase Auth's Redirect URLs in the dashboard. It isn't in the repo: there's no
+     `supabase/config.toml`.
+
+  Nothing was deployed from this session.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

@@ -42,7 +42,7 @@ must pass as well.
   (`// shortcut:` comments). Add an `ios` job on `macos-latest`, run on pushes to `main` and by
   `workflow_dispatch`.
   Check: CI job `ios` runs `./gradlew :core:domain:iosSimulatorArm64Test :composeApp:compileKotlinIosSimulatorArm64`
-- [ ] **P7 Deploy the website.** A CI step on `main` builds `webApp` and publishes it to GitHub Pages (or
+- [x] **P7 Deploy the website.** A CI step on `main` builds `webApp` and publishes it to GitHub Pages (or
   Cloudflare Pages if the repo is private). Add the site URL to Supabase Auth's redirect URLs and the README.
   Check: CI job `web` is green, and `curl -sf <site url> | grep -q '<canvas\|composeApp'`
 
