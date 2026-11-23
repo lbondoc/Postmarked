@@ -12,8 +12,8 @@ interface PhotoSaver {
     /** Saves to the device: Pictures/Postmarked on Android, a download on the web. */
     suspend fun save(file: SavedFile)
 
-    /** Hands one photo or video to the platform's sharing: the share sheet, or Web Share (else a download). */
-    suspend fun share(file: SavedFile)
+    /** Hands photos and videos to the platform's sharing: the share sheet, or Web Share (else downloads). */
+    suspend fun share(files: List<SavedFile>)
 }
 
 /** How far saving several has got: [done] of [total] attempted, [failed] of those didn't save. */

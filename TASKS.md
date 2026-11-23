@@ -72,7 +72,7 @@ must pass as well.
   cancelled.
   Check: `./gradlew :androidApp:assembleDebug :composeApp:compileKotlinWasmJs && node web/smoke.mjs`, then a
   manual check on the phone: a saved photo appears in Pictures/Postmarked
-- [ ] **F7 Multi-select.** Long-press plus drag (reusing the import screen's drag-select). Save, share or delete,
+- [x] **F7 Multi-select.** Long-press plus drag (reusing the import screen's drag-select). Save, share or delete,
   where delete only covers your own items.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*SelectionTest*'` (drag range, toggle, and the
   "N not yours, skipped" count)

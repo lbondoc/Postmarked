@@ -121,8 +121,21 @@ internal fun LazyGridScope.gallery(
             }
         }
         items(section.tiles, key = { it.cover.id }) { tile ->
-            Box(Modifier.clickable(onClickLabel = "Open") { onOpen(ordered, ordered.indexOf(tile.cover)) }) {
+            val selecting = vm.selected.isNotEmpty()
+            val selected = tile.cover.id in vm.selected
+            Box(
+                Modifier.clickable(onClickLabel = if (selecting) "Select" else "Open") {
+                    // While selecting, a tap adds or removes the tile instead of opening it.
+                    if (selecting) vm.selected = vm.selected.toggled(tile.cover.id) else onOpen(ordered, ordered.indexOf(tile.cover))
+                }.then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary) else Modifier),
+            ) {
                 Thumbnail(tripId, tile.cover.id, tile.cover.kind, vm.thumbnails[tile.cover.id])
+                if (selected) Text(
+                    "✓",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
+                )
                 if (tile.others.isNotEmpty()) Text(
                     "+${tile.others.size}",
                     color = Color.White,

@@ -579,6 +579,55 @@ BLOCKED, and nothing gets deployed from this sandbox.
   Downloads depend on Supabase Storage allowing the site's origin for `fetch` (CORS). Storage allows all
   origins by default.
 
+## F7 Multi-select
+- Changes:
+  - `ui/DragSelect.kt` (new): the import screen's long-press-and-drag selection (run select or deselect, plus
+    edge auto-scroll) moved out of `ImportScreen` into `Modifier.dragSelect`. The task says to reuse it, and a
+    copy would drift.
+  - `ui/ImportScreen.kt`:
+    - Uses `dragSelect` (about 50 lines removed), with unchanged behaviour: the default `selectHeld = false`
+      keeps "tick only once the finger moves".
+    - `setRange` uses the new pure `selectRange`.
+    - Imports no longer used were removed.
+  - `ui/Selection.kt` (new): pure `dragRange`, `selectRange`, `toggled`, `ownItems` (yours vs others) and
+    `skippedNote` ("N not yours, skipped"). These are what the task's check tests.
+  - `ui/TripScreen.kt`:
+    - `TripViewModel.selected`, kept in the view model so it survives rotation, like the filter.
+    - The grid gets `dragSelect` (`selectHeld = true`: a long press starts selecting).
+    - A `SelectionBar` (N selected · Save · Share · Delete · Done) with "Delete: N not yours, skipped" when
+      relevant. Save goes through F6's `SaveJob`/`SavingBar`, so saving several shows progress and can be
+      cancelled.
+    - The delete dialog deletes only your own items (`ownItems`) and says how many are skipped, or explains
+      that none are yours.
+    - `deleteSelected` and `share` added to the view model.
+  - `ui/GalleryFilters.kt` `gallery()`: while selecting, a tap toggles a tile instead of opening it, and
+    selected tiles get a border and ✓.
+  - `PhotoSaver.share` now takes a list: "selected items can be … shared". Android uses `ACTION_SEND_MULTIPLE`
+    with a common MIME type and ClipData permissions (as `AndroidExporter` does). The web shares all files with
+    Web Share, or downloads each. The iOS stub and the viewer (a list of one) follow.
+  - `SelectionTest.kt` (new):
+    - The drag range in both directions.
+    - Range select keeps tiles outside the run, range deselect works, and shrinking a drag recomputes from
+      the drag's start.
+    - Tap toggle.
+    - `ownItems` returns 2 mine and 2 skipped, with "2 not yours, skipped", and nothing is yours when signed
+      out.
+- Approach: selection is by tile (keyed by cover id), and actions apply to the tiles as shown. Shots folded
+  behind a burst tile aren't included, so "Delete 3" never silently removes 9. I considered selecting every
+  shot of a tile and rejected it as surprising for delete. Burst shots can still be handled one by one in the
+  viewer.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*SelectionTest*'` → `tests="4" skipped="0"
+    failures="0" errors="0"`.
+  - The existing tests still pass after the import-screen refactor (whole `testAndroidHostTest` in the gate).
+  - iOS compile → `BUILD SUCCESSFUL`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check** on a phone:
+  - Long-press then drag in the gallery.
+  - The import screen's drag-select still works exactly as before.
+  - Edge scrolling, and the selection bar's actions.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

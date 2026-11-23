@@ -54,5 +54,5 @@ private object IosExporter : Exporter {
 // shortcut: stub, implement when a Mac is available
 private object IosPhotoSaver : PhotoSaver {
     override suspend fun save(file: SavedFile) = throw UnsupportedOperationException(NOT_YET)
-    override suspend fun share(file: SavedFile) = throw UnsupportedOperationException(NOT_YET)
+    override suspend fun share(files: List<SavedFile>) = throw UnsupportedOperationException(NOT_YET)
 }

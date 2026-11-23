@@ -47,20 +47,31 @@ class AndroidPhotoSaver(private val activity: ComponentActivity) : PhotoSaver {
         }
     }
 
-    override suspend fun share(file: SavedFile) {
-        val (shared, type) = withContext(Dispatchers.IO) {
+    override suspend fun share(files: List<SavedFile>) {
+        if (files.isEmpty()) return
+        val shared = withContext(Dispatchers.IO) {
             // In the folder FileProvider shares from; replaced each time, so only the latest share is kept.
             val dir = File(activity.cacheDir, "exports/shared").apply { deleteRecursively(); mkdirs() }
-            download(file) { type, input ->
-                val out = File(dir, file.name + extensionFor(type))
-                out.outputStream().use { copy(input, it) }
-                out to type
+            files.map { file ->
+                download(file) { type, input ->
+                    val out = File(dir, file.name + extensionFor(type))
+                    out.outputStream().use { copy(input, it) }
+                    out to type
+                }
             }
         }
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", shared)
-        val send = Intent(Intent.ACTION_SEND).setType(type).putExtra(Intent.EXTRA_STREAM, uri)
-            .apply { clipData = ClipData.newRawUri(null, uri) }
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val uris = shared.map { (file, _) -> FileProvider.getUriForFile(activity, "${activity.packageName}.files", file) }
+        val types = shared.map { it.second }.distinct()
+        val send = if (uris.size == 1) {
+            Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris.single())
+        } else {
+            Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        }.apply {
+            type = types.singleOrNull() ?: if (types.all { it.startsWith("image/") }) "image/*" else "*/*"
+            // Lets the receiving app read the files; ClipData carries the permission to every one of them.
+            clipData = ClipData.newRawUri(null, uris.first()).also { clip -> uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) } }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         activity.startActivity(Intent.createChooser(send, null))
     }
 

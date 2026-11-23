@@ -1,5 +1,10 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Surface
+import io.github.lbondoc.postmarked.data.myUserId
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +88,8 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     // Kept here, not in the screen, so they survive rotating the phone.
     var view by mutableStateOf(GalleryView.All)
     var filter by mutableStateOf(GalleryFilter())
+    /** Selected gallery tiles, by cover id. Empty when not selecting. */
+    var selected by mutableStateOf(emptySet<String>())
 
     /** Set while an invite is on screen. It cannot be fetched again later, only replaced. */
     var inviteToken by mutableStateOf<String?>(null)
@@ -106,6 +113,16 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
             val filled = Media.fillPalettes(tripId, missing)
             media = media.map { filled[it.id] ?: it }
         }
+    }
+
+    /** The items' own files to the share sheet (or Web Share). */
+    fun share(saver: PhotoSaver, items: List<TripMedia>) = run { saver.share(items.map { Media.savedFile(tripId, it) }) }
+
+    /** Deletes [mine] (the caller passes only the user's own items) and ends selecting. */
+    fun deleteSelected(mine: List<TripMedia>) = run {
+        for (item in mine) Media.delete(tripId, item)
+        selected = emptySet()
+        loadMedia()
     }
 
     fun invite(role: TripRole) = run { inviteToken = Trips.createInvite(tripId, role) }
@@ -145,6 +162,11 @@ fun TripScreen(
     var viewing by remember { mutableStateOf<Pair<List<TripMedia>, Int>?>(null) }
     var confirmingExit by remember { mutableStateOf(false) }
     var filtering by remember { mutableStateOf(false) }
+    var confirmingDeleteSelected by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    val saving = remember { SaveJob(scope) }
+    val selectedItems = vm.media.filter { it.id in vm.selected }
     val uploads by cameraRoll.uploads.collectAsState()
     val uploadProgress by cameraRoll.uploadProgress.collectAsState()
     val mobileData by cameraRoll.mobileData.collectAsState()
@@ -175,10 +197,31 @@ fun TripScreen(
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
             )
         },
+        bottomBar = {
+            if (vm.selected.isNotEmpty() || saving.progress != null) SelectionBar(
+                selectedItems, saving,
+                onSave = { saving.start(tripId, selectedItems, photoSaver) },
+                onShare = { vm.share(photoSaver, selectedItems) },
+                onDelete = { confirmingDeleteSelected = true },
+                onDone = { vm.selected = emptySet() },
+            )
+        },
     ) { insets ->
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Adaptive(96.dp),
-            modifier = Modifier.fillMaxSize().padding(insets),
+            // Press and hold a photo to start selecting, then drag across others to select the whole run.
+            modifier = Modifier.fillMaxSize().padding(insets).dragSelect(
+                gridState, scope, key = Unit,
+                order = {
+                    val start = vm.trip?.startDate ?: return@dragSelect emptyList()
+                    gallerySections(filterMedia(vm.media, vm.filter, vm.places), vm.media, vm.view, start, stopNames)
+                        .flatMap { section -> section.tiles.map { it.cover.id } }
+                },
+                selected = { vm.selected },
+                onRange = { base, range, on -> vm.selected = selectRange(base, range, on) },
+                selectHeld = true,
+            ),
             contentPadding = PaddingValues(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -247,6 +290,28 @@ fun TripScreen(
 
     if (filtering && trip != null) {
         FilterSheet(vm.media, vm.places, trip.startDate, vm.filter, onChange = { vm.filter = it }, onClose = { filtering = false })
+    }
+
+    if (confirmingDeleteSelected) {
+        val (mine, skipped) = ownItems(selectedItems, myUserId)
+        AlertDialog(
+            onDismissRequest = { confirmingDeleteSelected = false },
+            title = { Text(if (mine.isEmpty()) "None of these are yours" else "Delete ${mine.size} of yours?") },
+            text = {
+                Text(
+                    listOfNotNull(
+                        if (mine.isEmpty()) "You can only delete photos and videos you added." else "They're removed from the trip for everyone.",
+                        skippedNote(skipped),
+                    ).joinToString(" "),
+                )
+            },
+            confirmButton = {
+                if (mine.isNotEmpty()) TextButton(onClick = { confirmingDeleteSelected = false; vm.deleteSelected(mine) }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmingDeleteSelected = false }) { Text("Cancel") } },
+        )
     }
 
     viewing?.let { (list, index) ->
@@ -328,6 +393,34 @@ fun TripScreen(
 
 /** The trip's main colours, from every photo's palette: its strongest hues, then at most one neutral. */
 fun tripPalette(media: List<TripMedia>): List<Swatch> = tripHues(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+
+/** What can be done with the selected tiles, and how saving them is going. Delete only covers your own. */
+@Composable
+private fun SelectionBar(
+    selected: List<TripMedia>,
+    saving: SaveJob,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val skipped = ownItems(selected, myUserId).second
+    Surface(tonalElevation = 3.dp) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            SavingBar(saving, MaterialTheme.colorScheme.onSurface)
+            if (selected.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${selected.size} selected", Modifier.weight(1f))
+                    TextButton(onClick = onSave, enabled = saving.progress?.finished != false) { Text("Save") }
+                    TextButton(onClick = onShare) { Text("Share") }
+                    TextButton(onClick = onDelete) { Text("Delete") }
+                    TextButton(onClick = onDone) { Text("Done") }
+                }
+                skippedNote(skipped)?.let { Text("Delete: $it", style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
 
 /** One square in a grid of a trip's photos and videos. */
 @Composable

@@ -173,12 +173,14 @@ internal fun downloadBlob(blob: JsAny, name: String): Unit = js(
     })()""",
 )
 
-/** Web Share with the file where the browser can share files (phones). False when it can't. */
-internal fun shareBlob(blob: JsAny, name: String): Boolean = js(
+internal fun namedBlob(name: String, blob: JsAny): JsAny = js("({ name: name, blob: blob })")
+
+/** Web Share with the files where the browser can share files (phones). False when it can't. */
+internal fun shareBlobs(named: JsArray<JsAny>): Boolean = js(
     """(() => {
-        const file = new File([blob], name, { type: blob.type });
-        if (!navigator.canShare || !navigator.canShare({ files: [file] })) return false;
-        navigator.share({ files: [file] }).catch(() => {});
+        const files = named.map((n) => new File([n.blob], n.name, { type: n.blob.type }));
+        if (!navigator.canShare || !navigator.canShare({ files: files })) return false;
+        navigator.share({ files: files }).catch(() => {});
         return true;
     })()""",
 )

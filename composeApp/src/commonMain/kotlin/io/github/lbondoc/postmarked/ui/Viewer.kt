@@ -165,7 +165,7 @@ fun Viewer(
                 Text("${pager.currentPage + 1} of ${items.size}", color = Color.White)
                 Spacer(Modifier.weight(1f))
                 // The photo's own file (the original, or the video): through the share sheet, or saved to the device.
-                TextButton(onClick = { act { photoSaver.share(Media.savedFile(tripId, item)) } }) { Text("Share", color = Color.White) }
+                TextButton(onClick = { act { photoSaver.share(listOf(Media.savedFile(tripId, item))) } }) { Text("Share", color = Color.White) }
                 TextButton(onClick = { saving.start(tripId, listOf(item), photoSaver) }, enabled = saving.progress?.finished != false) {
                     Text("Save", color = Color.White)
                 }
