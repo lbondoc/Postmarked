@@ -32,4 +32,7 @@ dependencies {
     implementation(libs.media3.effect)
     implementation(libs.media3.common)
     implementation(libs.coil.video) // video thumbnails in the import grid
+    // The map's rendering engine ships separately from the map library; without it the map crashes on open.
+    // OpenGL ES rather than Vulkan: every Android 10+ phone has it.
+    runtimeOnly(libs.maplibre.compose.runtime.opengl)
 }

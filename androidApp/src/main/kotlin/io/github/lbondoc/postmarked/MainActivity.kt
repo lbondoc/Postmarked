@@ -20,7 +20,9 @@ class MainActivity : ComponentActivity() {
         // does not redeem the same invite link a second time.
         if (savedInstanceState == null) readInvite(intent)
         val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
-        setContent { App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll) }
+        // Shown once: the file is removed as soon as it is read.
+        val lastCrash = crashReport(this).takeIf { it.exists() }?.let { file -> file.readText().also { file.delete() } }
+        setContent { App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, lastCrash = lastCrash) }
     }
 
     /** Called instead of onCreate when an invite link is tapped while the app is already open. */

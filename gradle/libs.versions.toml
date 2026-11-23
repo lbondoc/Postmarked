@@ -49,6 +49,7 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
 qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
+maplibre-compose-runtime-opengl = { module = "org.maplibre.compose:maplibre-compose-runtime-opengl-android", version.ref = "maplibreCompose" }
 maplibre-compose = { module = "org.maplibre.compose:maplibre-compose", version.ref = "maplibreCompose" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }

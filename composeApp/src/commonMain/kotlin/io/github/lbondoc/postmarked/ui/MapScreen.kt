@@ -222,7 +222,11 @@ private fun RouteMap(route: TripRoute, start: LocalDate, onStop: (Int) -> Unit, 
             west = points.minOf { it.lng } - pad, south = points.minOf { it.lat } - pad,
             east = points.maxOf { it.lng } + pad, north = points.maxOf { it.lat } + pad,
         )
-        mapState.fitCameraToBounds(box, CameraFit(fitPadding = DpPadding(40.dp, 40.dp, 40.dp, 40.dp)))
+        try {
+            mapState.fitCameraToBounds(box, CameraFit(fitPadding = DpPadding(40.dp, 40.dp, 40.dp, 40.dp)))
+        } catch (_: IllegalStateException) {
+            // The map closed (Back pressed) before it could move: nothing to do.
+        }
     }
     MaplibreMap(modifier = modifier, state = mapState)
 }
