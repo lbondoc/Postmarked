@@ -1,5 +1,24 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.runtime.collectAsState
+import kotlinx.datetime.LocalDate
+import io.github.lbondoc.postmarked.data.placeName
+import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.OutboxEntry
+import io.github.lbondoc.postmarked.data.isOffline
+import androidx.compose.runtime.produceState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.center
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.toSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -28,9 +47,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import coil3.SingletonImageLoader
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -43,7 +62,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
-import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import io.github.lbondoc.postmarked.data.Comment
 import io.github.lbondoc.postmarked.data.Media
@@ -78,6 +96,14 @@ fun Viewer(
     start: Int,
     thumbnails: Map<String, String>,
     videoPlayer: VideoPlayer,
+    photoSaver: PhotoSaver,
+    /** For "Day N" in the info panel. */
+    tripStart: LocalDate?,
+    /** Each item's stop ("Stop 3 · Big Sur"), by media id. */
+    stopTitles: Map<String, String>,
+    /** The trip's cover, and how to change it; null for members who can't (viewers). */
+    coverId: String?,
+    onSetCover: ((TripMedia) -> Unit)?,
     onDeleted: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -90,6 +116,12 @@ fun Viewer(
         var comments by remember(item.id) { mutableStateOf<List<Comment>>(emptyList()) }
         var problem by remember(item.id) { mutableStateOf<String?>(null) }
         var showComments by remember { mutableStateOf(false) }
+        var showInfo by remember { mutableStateOf(false) }
+        // Writes not yet sent (offline, or still on their way): shown as already made, marked "Waiting to send".
+        val outbox by Outbox.entries.collectAsState()
+        val pendingComments = outbox.filterIsInstance<OutboxEntry.Comment>().filter { it.mediaId == item.id }
+        val pendingReactions = outbox.filterIsInstance<OutboxEntry.Reaction>().filter { it.mediaId == item.id }.associateBy { it.emoji }
+        val saving = remember { SaveJob(scope) }
         var confirmingDelete by remember { mutableStateOf(false) }
 
         fun act(block: suspend () -> Unit) = scope.launch {
@@ -98,7 +130,8 @@ fun Viewer(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                problem = e.userMessage()
+                // Offline after queueing a write: it waits in the outbox, which the screen already shows.
+                if (!isOffline(e) || Outbox.entries.value.isEmpty()) problem = e.userMessage()
             }
         }
         LaunchedEffect(item.id) {
@@ -108,32 +141,68 @@ fun Viewer(
             }
         }
 
+        // Resets on every page change, so the next photo opens at 1×.
+        var zoom by remember(pager.currentPage) { mutableStateOf(ZoomState()) }
+        // Links to the full pictures, made for the photo on screen and the ones either side, which are then
+        // downloaded ahead so swiping shows them at once. The bucket is private, so every file needs a signed link.
+        var viewUrls by remember { mutableStateOf(emptyMap<String, String>()) }
+        val context = LocalPlatformContext.current
+        LaunchedEffect(pager.currentPage) {
+            val near = (pager.currentPage - 1..pager.currentPage + 1).mapNotNull { items.getOrNull(it) }
+            for (m in near.filter { it.id !in viewUrls }) {
+                val url = try {
+                    Media.viewUrl(tripId, m)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    continue // the thumbnail stays on screen
+                }
+                viewUrls = viewUrls + (m.id to url)
+                if (m != item && m.kind == MediaKind.Photo) SingletonImageLoader.get(context).enqueue(ImageRequest.Builder(context).data(url).build())
+            }
+        }
+
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                Page(tripId, items[page], active = page == pager.currentPage, thumbnails[items[page].id], videoPlayer)
+            // While zoomed, horizontal drags pan the photo instead of changing photos.
+            HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoom.zoomed) { page ->
+                val active = page == pager.currentPage
+                Page(
+                    items[page], active, thumbnails[items[page].id], viewUrls[items[page].id], videoPlayer,
+                    zoom = if (active) zoom else ZoomState(), onZoom = { if (active) zoom = it },
+                )
             }
             Row(Modifier.fillMaxWidth().background(SCRIM).systemBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("Close", color = Color.White) }
                 Spacer(Modifier.weight(1f))
                 Text("${pager.currentPage + 1} of ${items.size}", color = Color.White)
                 Spacer(Modifier.weight(1f))
+                // The photo's own file (the original, or the video): through the share sheet, or saved to the device.
+                TextButton(onClick = { act { photoSaver.share(listOf(Media.savedFile(tripId, item))) } }) { Text("Share", color = Color.White) }
+                TextButton(onClick = { saving.start(tripId, listOf(item), photoSaver) }, enabled = saving.progress?.finished != false) {
+                    Text("Save", color = Color.White)
+                }
                 if (item.contributor == myUserId) TextButton(onClick = { confirmingDelete = true }) { Text("Delete", color = Color.White) }
             }
             Column(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().background(SCRIM).systemBarsPadding().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
+                if (showInfo) Info(tripId, item, tripStart, stopTitles[item.id]) else {
+                    Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
+                }
+                SavingBar(saving, Color.White)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (emoji in REACTIONS) {
-                        val count = reactions.count { it.emoji == emoji }
-                        val mine = reactions.any { it.emoji == emoji && it.userId == myUserId }
+                        val sentMine = reactions.any { it.emoji == emoji && it.userId == myUserId }
+                        val waiting = pendingReactions[emoji]
+                        val mine = waiting?.on ?: sentMine
+                        val count = reactions.count { it.emoji == emoji } + (if (mine == sentMine) 0 else if (mine) 1 else -1)
                         FilterChip(
                             selected = mine,
                             onClick = {
                                 act {
-                                    Media.react(item.id, emoji, on = !mine)
+                                    Outbox.add(OutboxEntry.Reaction(Outbox.newId(), item.id, emoji, on = !mine))
                                     reactions = Media.reactions(item.id)
                                 }
                             },
@@ -147,7 +216,14 @@ fun Viewer(
                         )
                     }
                 }
-                TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size})", color = Color.White) }
+                Row {
+                    TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size + pendingComments.size})", color = Color.White) }
+                    TextButton(onClick = { showInfo = !showInfo }) { Text(if (showInfo) "Hide info" else "ⓘ Info", color = Color.White) }
+                    if (onSetCover != null) {
+                        if (item.id == coverId) Text("Trip cover", color = Color.White, modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp))
+                        else TextButton(onClick = { onSetCover(item) }) { Text("Set as trip cover", color = Color.White) }
+                    }
+                }
             }
         }
 
@@ -155,7 +231,7 @@ fun Viewer(
             ModalBottomSheet(onDismissRequest = { showComments = false }) {
                 var draft by remember { mutableStateOf("") }
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (comments.isEmpty()) Text("No comments yet.")
+                    if (comments.isEmpty() && pendingComments.isEmpty()) Text("No comments yet.")
                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(comments, key = { it.id }) { comment ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -172,6 +248,10 @@ fun Viewer(
                             }
                         }
                     }
+                    for (waiting in pendingComments) Column {
+                        Text("You · Waiting to send", style = MaterialTheme.typography.labelLarge)
+                        Text(waiting.body)
+                    }
                     problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     OutlinedTextField(
                         value = draft, onValueChange = { draft = it.take(1000) },
@@ -182,7 +262,7 @@ fun Viewer(
                             val body = draft
                             draft = ""
                             act {
-                                Media.comment(item.id, body)
+                                Outbox.add(OutboxEntry.Comment(Outbox.newId(), item.id, body.trim()))
                                 comments = Media.comments(item.id)
                             }
                         },
@@ -212,39 +292,96 @@ fun Viewer(
     }
 }
 
+/** Who, when, which day and stop, where, and how big: the lines from [infoLines], filling in as lookups finish. */
 @Composable
-private fun Page(tripId: String, item: TripMedia, active: Boolean, thumbUrl: String?, videoPlayer: VideoPlayer) {
-    // The bucket is private, so each page asks for a short-lived link to its file.
-    val url by produceState<String?>(null, item.id) {
+private fun Info(tripId: String, item: TripMedia, tripStart: LocalDate?, stop: String?) {
+    val place by produceState<String?>(null, item.id) { value = item.location?.let { placeName(it) } }
+    val bytes by produceState<Long?>(null, item.id) {
         value = try {
-            Media.viewUrl(tripId, item)
+            Media.fileSize(tripId, item)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            null // the thumbnail stays on screen
+            null // left out of the panel
         }
     }
-    val thumbPath = Media.path(tripId, item.id, MediaKind.THUMB)
+    Column {
+        for (line in infoLines(item, tripStart, stop, place, bytes = bytes)) Text(line, color = Color.White)
+    }
+}
+
+@Composable
+private fun Page(
+    item: TripMedia,
+    active: Boolean,
+    thumbUrl: String?,
+    viewUrl: String?,
+    videoPlayer: VideoPlayer,
+    zoom: ZoomState,
+    onZoom: (ZoomState) -> Unit,
+) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val link = url
-        if (item.kind == MediaKind.Video && active && link != null) {
-            videoPlayer(link, Modifier.fillMaxSize()) // only the page on screen plays
+        if (item.kind == MediaKind.Video && active && viewUrl != null) {
+            videoPlayer(viewUrl, Modifier.fillMaxSize()) // only the page on screen plays
         } else {
-            // Photos show the full picture once its link arrives; videos show their thumbnail until they play.
-            val full = item.kind == MediaKind.Photo && link != null
-            val key = if (full) Media.path(tripId, item.id, MediaKind.DISPLAY) else thumbPath
-            AsyncImage(
-                model = ImageRequest.Builder(LocalPlatformContext.current)
-                    .data(if (full) link else thumbUrl)
-                    .memoryCacheKey(key)
-                    .diskCacheKey(key)
-                    // Shows the grid's thumbnail, already in memory, while the full picture loads.
-                    .placeholderMemoryCacheKey(MemoryCache.Key(thumbPath))
-                    .build(),
-                contentDescription = if (item.kind == MediaKind.Video) "Video" else "Photo",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
+            // The thumbnail at once (usually already cached by the grid), the display picture over it when loaded.
+            // Both are cached by Storage path (StoragePathKeys), so expired links still hit the cache.
+            val layers = Modifier.fillMaxSize().then(if (item.kind == MediaKind.Photo) Modifier.zoomable(zoom, onZoom) else Modifier)
+            Box(layers) {
+                AsyncImage(
+                    model = thumbUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (item.kind == MediaKind.Photo && viewUrl != null) AsyncImage(
+                    model = viewUrl,
+                    contentDescription = "Photo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
+}
+
+/**
+ * Pinch and double-tap zoom for the viewer's photo, with the clamping in [ZoomState]. One-finger drags are
+ * taken only while zoomed; at 1× they are left for the pager, so swiping still changes photos.
+ */
+@Composable
+private fun Modifier.zoomable(zoom: ZoomState, onZoom: (ZoomState) -> Unit): Modifier {
+    val latest by rememberUpdatedState(zoom)
+    val update by rememberUpdatedState(onZoom)
+    return this
+        .pointerInput(Unit) {
+            detectTapGestures(onDoubleTap = { at -> update(latest.doubleTapped(at - size.toSize().center, size.toSize())) })
+        }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                var state = latest // several events can arrive before the next recomposition
+                do {
+                    val event = awaitPointerEvent()
+                    val page = size.toSize()
+                    val next = if (event.changes.count { it.pressed } > 1) {
+                        state.transformed(event.calculateZoom(), event.calculatePan(), event.calculateCentroid() - page.center, page)
+                    } else {
+                        state.swipe(event.calculatePan(), page)
+                    }
+                    if (next != null) {
+                        state = next
+                        update(next)
+                        event.changes.forEach { it.consume() }
+                    }
+                } while (event.changes.any { it.pressed })
+            }
+        }
+        // Inside the gesture handlers, so they see the screen's coordinates rather than the zoomed picture's.
+        .graphicsLayer {
+            scaleX = zoom.scale
+            scaleY = zoom.scale
+            translationX = zoom.pan.x
+            translationY = zoom.pan.y
+        }
 }

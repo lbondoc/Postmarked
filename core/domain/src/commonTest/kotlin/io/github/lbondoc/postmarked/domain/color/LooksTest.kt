@@ -65,4 +65,48 @@ class LooksTest {
     }
 
     private fun diagonal(offset: Double) = Grade(Grade.IDENTITY.m, listOf(offset + 0.1, offset + 0.1, offset + 0.1))
+
+    private val samples = listOf(sunflower, sky, 0x3F8F3A, 0xB5452F, 0x8A6F5A)
+    private fun lab(rgb: Int) = Oklab.fromRgb(rgb)
+    private fun after(filter: Filter, rgb: Int) = Look(filter).grade().apply(rgb)
+
+    @Test
+    fun monoHasEqualChannels() {
+        for (rgb in samples) {
+            val (r, g, b) = channels(after(Filter.Mono, rgb))
+            assertTrue(r == g && g == b, "${rgb.toString(16)} -> $r $g $b")
+        }
+    }
+
+    @Test
+    fun vividRaisesChroma() {
+        for (rgb in samples) assertTrue(lab(after(Filter.Vivid, rgb)).chroma > lab(rgb).chroma, rgb.toString(16))
+    }
+
+    @Test
+    fun moodyLowersLightness() {
+        for (rgb in samples + 0x808080) assertTrue(lab(after(Filter.Moody, rgb)).l < lab(rgb).l, rgb.toString(16))
+    }
+
+    @Test
+    fun desertWarms() {
+        // Warmer: red gains on blue, and in OKLab the colour moves toward yellow (b up).
+        for (rgb in samples + 0x808080) {
+            val (r0, _, b0) = channels(rgb)
+            val (r, _, b) = channels(after(Filter.Desert, rgb))
+            assertTrue(r - b > r0 - b0, "${rgb.toString(16)}: red-blue $r0-$b0 -> $r-$b")
+            assertTrue(lab(after(Filter.Desert, rgb)).b > lab(rgb).b, rgb.toString(16))
+        }
+    }
+
+    @Test
+    fun nightDriveCoolsAndDarkens() {
+        for (rgb in samples + 0x808080) {
+            val (r0, _, b0) = channels(rgb)
+            val (r, _, b) = channels(after(Filter.NightDrive, rgb))
+            // Cooler means more blue relative to red; a ratio, because darkening shrinks the gap between them too.
+            assertTrue((b + 1.0) / (r + 1) > (b0 + 1.0) / (r0 + 1), "${rgb.toString(16)}: blue/red $b0/$r0 -> $b/$r")
+            assertTrue(lab(after(Filter.NightDrive, rgb)).l < lab(rgb).l, rgb.toString(16))
+        }
+    }
 }

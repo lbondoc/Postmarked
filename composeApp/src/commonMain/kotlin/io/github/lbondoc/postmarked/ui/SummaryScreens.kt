@@ -1,5 +1,12 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.daysUntil
+import kotlinx.datetime.LocalDate
+import io.github.lbondoc.postmarked.domain.summary.shortQuote
+import io.github.lbondoc.postmarked.data.notesToShow
+import io.github.lbondoc.postmarked.data.isOffline
+import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.DayNotes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -28,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
 import io.github.lbondoc.postmarked.domain.color.share
 import io.github.lbondoc.postmarked.domain.color.then
 import io.github.lbondoc.postmarked.domain.color.Look
@@ -110,11 +118,16 @@ import kotlin.math.roundToInt
 private const val METERS_PER_MILE = 1609.344
 
 /** Everything a summary is drawn from, loaded once per screen. */
+/** How long a text tile's words can be; more doesn't fit legibly. */
+private const val TILE_TEXT_MAX = 80
+
 class SummaryMaterial(
     val trip: Trip,
     val media: List<TripMedia>,
     val pictures: Map<String, String>,
     val thumbnails: Map<String, String>,
+    /** The trip's day notes, for "Day note" text tiles and the caption (SPEC §6). */
+    val notes: Map<LocalDate, String> = emptyMap(),
 ) {
     val byId = media.associateBy { it.id }
     val palette: List<Swatch> = tripPalette(media)
@@ -146,7 +159,10 @@ private suspend fun loadMaterial(tripId: String): SummaryMaterial {
     val all = Media.ofTrip(tripId)
     val filled = Media.fillPalettes(tripId, all.filter { it.palette == null })
     val media = all.map { filled[it.id] ?: it }
-    return SummaryMaterial(trip, media, Media.pictureUrls(tripId, media), Media.thumbnailUrls(tripId, media.map { it.id }))
+    // Offline a summary simply has no notes to offer; edits still waiting in the outbox count.
+    val saved = try { DayNotes.ofTrip(tripId) } catch (e: Exception) { if (isOffline(e)) emptyList() else throw e }
+    val notes = notesToShow(saved, Outbox.entries.value, tripId)
+    return SummaryMaterial(trip, media, Media.pictureUrls(tripId, media), Media.thumbnailUrls(tripId, media.map { it.id }), notes)
 }
 
 // ---------- The list of a trip's summaries ----------
@@ -440,6 +456,9 @@ fun SummaryEditorScreen(
             quickTexts = listOfNotNull(
                 material.trip.name, material.trip.dates, vm.miles?.let { "$it miles" },
             ) + material.trip.regions.map { it.label.substringBefore(',') },
+            dayNotes = material.notes.entries.sortedBy { it.key }.map { (day, note) ->
+                "Day ${material.trip.startDate.daysUntil(day) + 1}" to shortQuote(note, TILE_TEXT_MAX)
+            },
             onChange = { vm.setTile(index, it) },
             onMove = { to -> vm.swap(index, to); editing = to },
             onPickPhoto = { pickMany = false; picking = { ids -> ids.firstOrNull()?.let { vm.setTile(index, SummaryTile(media = it)) } } },
@@ -591,7 +610,9 @@ private fun Modifier.dashedBorder(colour: Color) = drawBehind {
 internal fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (Oklab) -> Unit) {
     // How many photos are mostly each colour: what a one-colour summary can be built from.
     val matching = remember(material) {
-        material.palette.associate { swatch -> rgbToHex(swatch.rgb) to material.candidates.count { share(it.swatches, swatch.color) >= MONOCHROME_SHARE } }
+        (material.palette.map { it.rgb } + COLOUR_WHEEL.map { it.second }).associate { rgb ->
+            rgbToHex(rgb) to material.candidates.count { share(it.swatches, Oklab.fromRgb(rgb)) >= MONOCHROME_SHARE }
+        }
     }
     val chosen = summary.colours.firstOrNull().takeIf { mode == SummaryMode.Monochrome }
     SectionLabel(chosen?.let { "Colour · ${matching[it] ?: 0} photos match" } ?: "Colour")
@@ -601,6 +622,17 @@ internal fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryM
             StampSwatch(
                 rgbColor(swatch.rgb), colourName(swatch.color), hex == chosen, onClick = { onChoose(swatch.color) },
                 count = matching[hex], tilt = if (i % 2 == 0) -2f else 2f,
+            )
+        }
+    }
+    SectionLabel("More colours")
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        COLOUR_WHEEL.forEachIndexed { i, (name, rgb) ->
+            val hex = rgbToHex(rgb)
+            val n = matching.getValue(hex)
+            StampSwatch(
+                rgbColor(rgb), name, hex == chosen, onClick = { onChoose(Oklab.fromRgb(rgb)) },
+                count = n, enabled = n > 0, tilt = if (i % 2 == 0) -2f else 2f,
             )
         }
     }
@@ -664,6 +696,8 @@ private fun TileSheet(
     slotCount: Int,
     colours: List<String>,
     quickTexts: List<String>,
+    /** "Day note" text tiles: each day's note, already shortened to fit a tile, by its day's label. */
+    dayNotes: List<Pair<String, String>>,
     onChange: (SummaryTile) -> Unit,
     onMove: (Int) -> Unit,
     onPickPhoto: () -> Unit,
@@ -713,12 +747,18 @@ private fun TileSheet(
             } else {
                 OutlinedTextField(
                     value = tile.text.orEmpty(),
-                    onValueChange = { onChange(tile.copy(text = it.take(80).ifEmpty { null }, bg = tile.bg ?: colours.first())) },
+                    onValueChange = { onChange(tile.copy(text = it.take(TILE_TEXT_MAX).ifEmpty { null }, bg = tile.bg ?: colours.first())) },
                     label = { Text("Text (leave empty for a plain colour)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 FlowRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (text in quickTexts) InkChip(text, tile.text == text, { onChange(tile.copy(text = text, bg = tile.bg ?: colours.first())) })
+                }
+                if (dayNotes.isNotEmpty()) {
+                    SectionLabel("Day notes")
+                    FlowRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for ((label, quote) in dayNotes) InkChip(label, tile.text == quote, { onChange(tile.copy(text = quote, bg = tile.bg ?: colours.first())) })
+                    }
                 }
                 SectionLabel("Colour")
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

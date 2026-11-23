@@ -39,7 +39,8 @@ class Tile(val cover: TripMedia, val others: List<TripMedia>) {
     val all get() = listOf(cover) + others
 }
 
-class Section(val title: String?, val tiles: List<Tile>)
+/** A run of tiles under one heading. By day, a section also has its [day] and that day's [note], if any. */
+class Section(val title: String?, val tiles: List<Tile>, val day: LocalDate? = null, val note: String? = null)
 
 fun filterMedia(items: List<TripMedia>, filter: GalleryFilter, places: Map<String, TripArea>): List<TripMedia> =
     items.filter { item ->
@@ -70,11 +71,12 @@ fun <T> countEach(
 fun gallerySections(
     items: List<TripMedia>, allItems: List<TripMedia>, view: GalleryView, tripStart: LocalDate,
     stopNames: Map<Int, String> = emptyMap(),
+    notes: Map<LocalDate, String> = emptyMap(),
 ): List<Section> =
     when (view) {
         GalleryView.All -> listOf(Section(null, tiles(items)))
         GalleryView.Days -> items.groupBy { it.takenOn }.entries.sortedBy { it.key }.map { (day, dayItems) ->
-            Section("Day ${tripStart.daysUntil(day) + 1} · ${day.format(DAY)} · ${dayItems.size}", tiles(dayItems))
+            Section("Day ${tripStart.daysUntil(day) + 1} · ${day.format(DAY)} · ${dayItems.size}", tiles(dayItems), day, notes[day])
         }
         GalleryView.Stops -> {
             val stopOf = planRoute(allItems.mapNotNull { it.toRoutePoint() }).stops

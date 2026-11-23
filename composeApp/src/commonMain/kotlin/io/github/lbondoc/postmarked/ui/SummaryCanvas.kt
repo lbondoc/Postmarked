@@ -1,5 +1,10 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.runtime.produceState
+import coil3.request.SuccessResult
+import coil3.SingletonImageLoader
+import io.github.lbondoc.postmarked.domain.summary.Slot
+import io.github.lbondoc.postmarked.domain.summary.arrange
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -97,6 +102,10 @@ fun SummaryCanvas(
     onMove: ((Set<Int>, Int) -> Unit)? = null,
     onTap: ((Int) -> Unit)? = null,
 ) {
+    // Adaptive layouts follow each photo's shape (SPEC §8.4): measured as the pictures load, then reflowed.
+    val aspects = rememberPictureAspects(tiles, pictures)
+    val arranged = remember(layout, aspects, tiles.size) { layout.arrange(List(layout.slots.size) { i -> tiles.getOrNull(i)?.media?.let { aspects[it] } }) }
+    val slots = arranged.slots
     // The gesture below runs for as long as a finger is down; these let it see the latest values.
     val tap by rememberUpdatedState(onTap)
     val select by rememberUpdatedState(onSelect)
@@ -105,8 +114,8 @@ fun SummaryCanvas(
     var moving by remember { mutableStateOf(false) }
     var finger by remember { mutableStateOf(Offset.Zero) }
     // On the canvas itself, so it sees every touch whichever tile is under the finger.
-    val touch = if (onTap == null && onSelect == null) Modifier else Modifier.pointerInput(layout) {
-        fun slotAt(point: Offset) = slotAt(layout, point, size.width.toFloat(), size.height.toFloat())
+    val touch = if (onTap == null && onSelect == null) Modifier else Modifier.pointerInput(slots) {
+        fun slotAt(point: Offset) = slotAt(slots, point, size.width.toFloat(), size.height.toFloat())
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             val start = slotAt(down.position) ?: return@awaitEachGesture
@@ -138,17 +147,17 @@ fun SummaryCanvas(
             }
         }
     }
-    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(layout.aspect.toFloat()).background(paper).then(touch)) {
+    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(arranged.aspect.toFloat()).background(paper).then(touch)) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
         val density = LocalDensity.current
-        val hover = if (moving) slotAt(layout, finger, width, height) else null
-        val all = List(layout.slots.size) { tiles.getOrNull(it) ?: SummaryTile() }
+        val hover = if (moving) slotAt(slots, finger, width, height) else null
+        val all = List(slots.size) { tiles.getOrNull(it) ?: SummaryTile() }
         // While moving, the summary shows where everything would end up.
         val (shown, landing) = if (hover != null) moveTiles(all, selected, hover) else all to IntRange.EMPTY
         val selecting = selected.isNotEmpty() && onSelect != null
 
-        layout.slots.forEachIndexed { i, slot ->
+        slots.forEachIndexed { i, slot ->
             val tile = shown[i]
             // Layouts are fractions of the canvas; these are pixels.
             val left = (slot.x * width).toFloat()
@@ -198,7 +207,7 @@ fun SummaryCanvas(
 }
 
 /** Which slot is under [point] (in pixels on a [width] x [height] canvas), if any. */
-private fun slotAt(layout: Layout, point: Offset, width: Float, height: Float) = layout.slots.indexOfFirst { s ->
+private fun slotAt(slots: List<Slot>, point: Offset, width: Float, height: Float) = slots.indexOfFirst { s ->
     point.x in (s.x * width).toFloat()..((s.x + s.w) * width).toFloat() && point.y in (s.y * height).toFloat()..((s.y + s.h) * height).toFloat()
 }.takeIf { it >= 0 }
 
@@ -348,6 +357,24 @@ fun CroppedPhoto(url: String?, crop: Crop?, colorFilter: ColorFilter?, modifier:
             with(painter) { draw(Size(src.width * scale, src.height * scale), colorFilter = colorFilter) }
         }
     }
+}
+
+/**
+ * Each tile photo's width / height, by media id, filling in as the pictures load. The request is the same one
+ * [CroppedPhoto] makes, so this is a cache hit, not a second download.
+ */
+@Composable
+private fun rememberPictureAspects(tiles: List<SummaryTile>, pictures: Map<String, String>): Map<String, Double> {
+    val context = LocalPlatformContext.current
+    val wanted = tiles.mapNotNull { it.media }.distinct().mapNotNull { id -> pictures[id]?.let { id to it } }
+    val known by produceState(emptyMap<String, Double>(), wanted) {
+        for ((id, url) in wanted) {
+            if (id in value) continue
+            val image = (SingletonImageLoader.get(context).execute(ImageRequest.Builder(context).data(url).size(PHOTO_PIXELS).build()) as? SuccessResult)?.image
+            if (image != null && image.height > 0) value = value + (id to image.width.toDouble() / image.height)
+        }
+    }
+    return known
 }
 
 /** The long-ish edge photos are decoded at for the editor: sharp on a phone, without loading full originals. */

@@ -60,4 +60,35 @@ class CaptionTest {
         assertEquals(5, tags.size)
         assertTrue(tags.toSet().size == tags.size)
     }
+
+    @Test
+    fun aCaptionCanQuoteADayNote() {
+        val text = caption(
+            tripName = "Big Sur Road Trip",
+            start = LocalDate(2026, 10, 3), end = LocalDate(2026, 10, 5),
+            miles = 412, stops = 12, places = listOf("Big Sur"), song = null, colour = null,
+            note = "Fog all morning, then sun over Bixby Bridge.",
+        )
+        assertEquals(
+            listOf("Big Sur Road Trip", "Oct 3 – 5, 2026 · 412 miles · 12 stops", "“Fog all morning, then sun over Bixby Bridge.”", "📍 Big Sur"),
+            text.substringBefore("\n\n").lines(),
+        )
+    }
+
+    @Test
+    fun longNotesAreCutAtAWord() {
+        val quote = shortQuote("We drove down Highway 1 in thick fog and stopped at every single turnout we could find", 40)
+        assertEquals("“We drove down Highway 1 in thick fog…”", quote)
+        assertTrue(quote.length <= 40)
+        assertEquals("“Short”", shortQuote("  Short  ", 40))
+    }
+
+    @Test
+    fun theNoteQuotedIsTheOnlyOneAmongTheSummarysDays() {
+        val notes = mapOf(LocalDate(2026, 10, 3) to "Fog", LocalDate(2026, 10, 4) to "Heat")
+        assertEquals("Fog", noteToQuote(setOf(LocalDate(2026, 10, 3)), notes))
+        assertEquals("Fog", noteToQuote(setOf(LocalDate(2026, 10, 3), LocalDate(2026, 10, 5)), notes), "a day without a note doesn't matter")
+        assertNull(noteToQuote(setOf(LocalDate(2026, 10, 3), LocalDate(2026, 10, 4)), notes), "two days, two notes: neither")
+        assertNull(noteToQuote(setOf(LocalDate(2026, 10, 5)), notes))
+    }
 }

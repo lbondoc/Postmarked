@@ -1,5 +1,7 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.notesToShow
+import io.github.lbondoc.postmarked.data.OutboxEntry
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.domain.color.Oklab
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
 import io.github.lbondoc.postmarked.domain.color.colourName
 import io.github.lbondoc.postmarked.domain.color.hexToRgb
 import io.github.lbondoc.postmarked.domain.color.rgbToHex
@@ -70,7 +73,10 @@ private fun personColour(people: List<Pair<String, String>>, id: String) =
 private fun daysOf(media: List<TripMedia>) = media.map { it.takenOn }.distinct().sorted()
 private fun dayLabel(tripStart: LocalDate, day: LocalDate) = "Day ${tripStart.daysUntil(day) + 1}"
 private fun placeLabel(name: String) = name.substringBefore(',')
-private fun colourLabel(hex: String) = colourName(Oklab.fromRgb(hexToRgb(hex)))
+private fun colourLabel(hex: String) = WHEEL.firstOrNull { it.second == hex }?.first ?: colourName(Oklab.fromRgb(hexToRgb(hex)))
+
+/** The "More colours" row as "#RRGGBB", the form filters store colours in. */
+internal val WHEEL = COLOUR_WHEEL.map { (name, rgb) -> name to rgbToHex(rgb) }
 
 /** One switched-on filter, as a chip under the Filter button. */
 private class ActiveFilter(val label: String, val dot: Color?, val remove: (GalleryFilter) -> GalleryFilter)
@@ -99,10 +105,16 @@ internal fun LazyGridScope.gallery(
     vm: TripViewModel,
     stopNames: Map<Int, String>,
     onFilter: () -> Unit,
+    /** Writes waiting to send, for day notes edited offline. */
+    outbox: List<OutboxEntry>,
+    onEditNote: (LocalDate) -> Unit,
     onOpen: (List<TripMedia>, Int) -> Unit,
 ) {
+    val notes = notesToShow(vm.savedNotes, outbox, tripId)
+    val waitingDays = outbox.filterIsInstance<OutboxEntry.DayNote>().filter { it.tripId == tripId }.map { it.day }.toSet()
+    val canEdit = vm.trip?.myRole?.canEdit == true
     val visible = filterMedia(vm.media, vm.filter, vm.places)
-    val sections = gallerySections(visible, vm.media, vm.view, tripStart, stopNames)
+    val sections = gallerySections(visible, vm.media, vm.view, tripStart, stopNames, notes)
     // The viewer swipes through everything shown, in order, including the shots folded behind each tile.
     val ordered = sections.flatMap { section -> section.tiles.flatMap { it.all } }
 
@@ -113,12 +125,34 @@ internal fun LazyGridScope.gallery(
     for (section in sections) {
         section.title?.let { title ->
             item(span = { GridItemSpan(maxLineSpan) }, key = "section:$title") {
-                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp, top = 12.dp))
+                Column(Modifier.padding(start = 8.dp, top = 12.dp, end = 8.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    // By day: the day's note, editable in place by the owner and editors (SPEC §6).
+                    val day = section.day
+                    if (day != null) {
+                        section.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        if (day in waitingDays) Text("Waiting to send", style = MaterialTheme.typography.bodySmall)
+                        if (canEdit) TextButton(onClick = { onEditNote(day) }) { Text(if (section.note == null) "Add a note" else "Edit note") }
+                    }
+                }
             }
         }
         items(section.tiles, key = { it.cover.id }) { tile ->
-            Box(Modifier.clickable(onClickLabel = "Open") { onOpen(ordered, ordered.indexOf(tile.cover)) }) {
+            val selecting = vm.selected.isNotEmpty()
+            val selected = tile.cover.id in vm.selected
+            Box(
+                Modifier.clickable(onClickLabel = if (selecting) "Select" else "Open") {
+                    // While selecting, a tap adds or removes the tile instead of opening it.
+                    if (selecting) vm.selected = vm.selected.toggled(tile.cover.id) else onOpen(ordered, ordered.indexOf(tile.cover))
+                }.then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary) else Modifier),
+            ) {
                 Thumbnail(tripId, tile.cover.id, tile.cover.kind, vm.thumbnails[tile.cover.id])
+                if (selected) Text(
+                    "✓",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
+                )
                 if (tile.others.isNotEmpty()) Text(
                     "+${tile.others.size}",
                     color = Color.White,
@@ -234,7 +268,7 @@ internal fun FilterSheet(
     // Counting reruns the filter once per choice: fine for a trip's few hundred photos.
     val counts = remember(media, places, filter) {
         object {
-            val byColour = countEach(media, filter, places, palette) { copy(colours = setOf(it)) }
+            val byColour = countEach(media, filter, places, (palette + WHEEL.map { it.second }).distinct()) { copy(colours = setOf(it)) }
             val byPerson = countEach(media, filter, places, people.map { it.first }) { copy(people = setOf(it)) }
             val byDay = countEach(media, filter, places, days) { copy(days = setOf(it)) }
             val byPlace = countEach(media, filter, places, placeNames) { copy(places = setOf(it)) }
@@ -263,6 +297,20 @@ internal fun FilterSheet(
                             rgbColor(hexToRgb(hex)), colourLabel(hex), hex in filter.colours,
                             onClick = { onChange(filter.copy(colours = filter.colours.toggle(hex))) },
                             count = n, enabled = n > 0, tilt = if (i % 2 == 0) -2f else 2f,
+                        )
+                    }
+                }
+            }
+            // Any colour, not only the trip's own: greyed out where no photo matches.
+            if (media.any { !it.palette.isNullOrEmpty() }) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SectionLabel("More colours")
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    WHEEL.forEachIndexed { i, (name, hex) ->
+                        val n = counts.byColour.getValue(hex)
+                        StampSwatch(
+                            rgbColor(hexToRgb(hex)), name, hex in filter.colours,
+                            onClick = { onChange(filter.copy(colours = filter.colours.toggle(hex))) },
+                            count = n, enabled = n > 0 || hex in filter.colours, tilt = if (i % 2 == 0) -2f else 2f,
                         )
                     }
                 }

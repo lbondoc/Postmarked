@@ -1,5 +1,12 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.pendingTrip
+import io.github.lbondoc.postmarked.data.Outbox
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -21,9 +28,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import coil3.compose.setSingletonImageLoaderFactory
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.lbondoc.postmarked.data.CameraRoll
+import io.github.lbondoc.postmarked.data.PhotoSaver
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.supabase
 import io.github.lbondoc.postmarked.data.userMessage
@@ -58,8 +67,10 @@ fun App(
     cameraRoll: CameraRoll,
     videoPlayer: VideoPlayer,
     exporter: Exporter,
+    photoSaver: PhotoSaver,
     lastCrash: String? = null,
 ) {
+    setSingletonImageLoaderFactory(::imageLoader) // every image cached by its Storage path
     PostmarkedTheme {
         var crash by remember { mutableStateOf(lastCrash) }
         crash?.let { report ->
@@ -75,7 +86,10 @@ fun App(
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter)
+            is SessionStatus.Authenticated -> {
+                LaunchedEffect(Unit) { runCatching { Outbox.flush() } } // what was written offline last time
+                SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter, photoSaver)
+            }
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }
@@ -83,8 +97,22 @@ fun App(
 }
 
 @Composable
-private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, videoPlayer: VideoPlayer, exporter: Exporter) {
+private fun SignedIn(
+    onShare: (String) -> Unit,
+    scanQr: suspend () -> String?,
+    cameraRoll: CameraRoll,
+    videoPlayer: VideoPlayer,
+    exporter: Exporter,
+    photoSaver: PhotoSaver,
+) {
     val nav = rememberNavController()
+    val openTrip by pendingTrip.collectAsState()
+    LaunchedEffect(openTrip) {
+        openTrip?.let {
+            pendingTrip.value = null
+            nav.navigate(TripRoute(it))
+        }
+    }
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
             TripListScreen(
@@ -111,6 +139,7 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
                 onOpenSummaries = { nav.navigate(SummariesRoute(tripId)) },
                 onShare = onShare,
                 videoPlayer = videoPlayer,
+                photoSaver = photoSaver,
             )
         }
         composable<SummariesRoute> { entry ->
@@ -160,6 +189,17 @@ abstract class ScreenModel : ViewModel() {
 }
 
 // shortcut: English month names only, switch to the platform's locale formatting when translating the app.
+/** Shown above content read from the offline copy (SPEC §4). */
+@Composable
+internal fun OfflineBanner(modifier: Modifier = Modifier) {
+    Text(
+        "Offline, showing what you last saw",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
 internal val DAY = LocalDate.Format {
     monthName(MonthNames.ENGLISH_ABBREVIATED); char(' '); day(Padding.NONE); char(','); char(' '); year()
 }

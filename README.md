@@ -52,6 +52,18 @@ to `index.json`.
 | `supabase/functions/route` | Server function that joins stops along roads via Stadia Maps, keeping the Stadia key off phones. Tests: `deno test supabase/functions/`. |
 | `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
 
+## Website
+
+The same app runs in the browser at **https://lbondoc.github.io/Postmarked/**, built from `webApp`. CI
+publishes it to GitHub Pages on every push to `main` (the `web` and `pages` jobs). The website can do
+everything except live mode and background upload: uploads run while the tab is open, HEIC photos
+are refused (browsers can't read them), and videos go up as they are, under 50 MB.
+
+```
+./gradlew :webApp:wasmJsBrowserDistribution   # site in webApp/build/dist/wasmJs/productionExecutable/
+node web/smoke.mjs                            # opens it in Chromium, fails on errors (needs Playwright)
+```
+
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME` set, or `sdk.dir=...` in `local.properties`).
@@ -73,7 +85,11 @@ uninstall the previous build before installing a new one.
 2. Authentication → Sign In / Providers → Email: turn **Confirm email** off. The app signs in
    with email + password, and Supabase's built-in mailer is too limited to confirm friends' addresses.
 
-3. Road routing (without it the map draws straight lines between stops):
+3. Authentication → URL Configuration: add `https://lbondoc.github.io/Postmarked/` to **Redirect URLs**,
+   so sign-in links (password resets) can return to the website.
+4. GitHub: Settings → Pages → Source: **GitHub Actions**, once, so the `pages` job can publish.
+
+5. Road routing (without it the map draws straight lines between stops):
    - Create a free account at stadiamaps.com and an API key.
    - Supabase dashboard → Edge Functions → Secrets: add `STADIA_API_KEY` with that key.
    - Edge Functions → Deploy a new function → Via Editor: name it `route`, paste

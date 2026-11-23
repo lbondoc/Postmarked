@@ -66,6 +66,16 @@ enum class Filter(val label: String, val grade: Grade) {
     Golden("Golden", chain(sepia(0.4), saturation(1.3), brightness(1.04))),
     Coastal("Coastal", chain(saturation(0.9), hueRotate(-12.0), brightness(1.05))),
     BlackAndWhite("B&W", chain(saturation(0.0), contrast(1.1))),
+    // A softer, matte black and white: no colour at all, blacks a touch lifted.
+    Mono("Mono", chain(saturation(0.0), contrast(0.92), brightness(1.03))),
+    // Darker and quieter: less colour and light, a little more contrast.
+    Moody("Moody", chain(saturation(0.8), contrast(1.1), brightness(0.86))),
+    // Punchier colour for grey days.
+    Vivid("Vivid", chain(saturation(1.45), contrast(1.06))),
+    // Sun-baked: warm brown tone, reds up and blues down.
+    Desert("Desert", chain(sepia(0.25), diagonal(1.08, 1.0, 0.86), saturation(1.1))),
+    // Dashboard-at-night blue: cooler and darker.
+    NightDrive("Night Drive", chain(diagonal(0.86, 0.95, 1.1), brightness(0.82), saturation(0.9), contrast(1.05))),
 }
 
 /**

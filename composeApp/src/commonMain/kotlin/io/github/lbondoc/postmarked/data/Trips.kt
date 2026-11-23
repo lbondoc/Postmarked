@@ -52,6 +52,8 @@ data class Trip(
     @SerialName("theme_id") val themeId: String? = null,
     /** {"accent": "#RRGGBB"} when the owner picked an accent colour. */
     @SerialName("theme_overrides") val themeOverrides: JsonObject? = null,
+    /** The photo shown on the trip list; always one of this trip's own (the database checks). */
+    @SerialName("cover_media_id") val coverMediaId: String? = null,
 ) {
     val myRole: TripRole? get() = members.firstOrNull { it.userId == myUserId }?.role
     val customAccent: String? get() = (themeOverrides?.get("accent") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
@@ -60,7 +62,7 @@ data class Trip(
 /** Everything the app asks the backend about trips. All calls need a signed-in user. */
 object Trips {
     // "trip_regions(label)" pulls each trip's regions along in the same request.
-    private const val SUMMARY = "id,name,start_date,end_date,theme_id,theme_overrides,trip_regions(label)"
+    private const val SUMMARY = "id,name,start_date,end_date,theme_id,theme_overrides,cover_media_id,trip_regions(label)"
     private const val DETAIL = "$SUMMARY,trip_members(user_id,role,profile:profiles(display_name))"
 
     /** Trips the user is a member of; the server's access rules do the filtering. */
@@ -87,6 +89,11 @@ object Trips {
 
     /** Returns a fresh invite token. The server keeps only its hash, so it cannot be shown again. */
     /** Owners and editors set the album theme; everyone on the trip then sees it. */
+    /** Owner and editors only; [mediaId] must be in this trip. Null removes the cover. */
+    suspend fun setCover(tripId: String, mediaId: String?) {
+        supabase.from("trips").update(buildJsonObject { put("cover_media_id", mediaId) }) { filter { eq("id", tripId) } }
+    }
+
     suspend fun setTheme(tripId: String, themeId: String, accent: String?) {
         supabase.from("trips").update(buildJsonObject {
             put("theme_id", themeId)
@@ -116,11 +123,22 @@ object Trips {
         supabase.from("trips").delete { filter { eq("id", tripId) } }
     }
 
-    /** The trip's dates and area, which decide which camera-roll items belong to it. */
+    /**
+     * The trip's dates and area, which decide which camera-roll items belong to it. Saved for offline use, so
+     * photos can be picked and queued in airplane mode (they upload once there is a network).
+     */
     suspend fun bounds(tripId: String): TripBounds {
-        val row = supabase.from("trips").select(Columns.raw("start_date,end_date,trip_regions(geojson)")) {
-            filter { eq("id", tripId) }
-        }.decodeSingle<BoundsRow>()
+        val cache = TripCache.shared
+        val key = "bounds-$tripId"
+        val row = loadOrCached(
+            {
+                supabase.from("trips").select(Columns.raw("start_date,end_date,trip_regions(geojson)")) {
+                    filter { eq("id", tripId) }
+                }.decodeSingle<BoundsRow>()
+            },
+            { cache.put(key, BoundsRow.serializer(), it) },
+            { cache.get(key, BoundsRow.serializer()) },
+        ).value
         return TripBounds(row.startDate, row.endDate, TripArea(row.regions.map { it.geojson }))
     }
 }

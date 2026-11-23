@@ -1,5 +1,19 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.material3.OutlinedTextField
+import io.github.lbondoc.postmarked.data.notesToShow
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.todayIn
+import kotlinx.datetime.TimeZone
+import kotlin.time.Clock
+import io.github.lbondoc.postmarked.domain.trip.liveModeOn
+import io.github.lbondoc.postmarked.data.LiveMode
+import kotlinx.datetime.format
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Surface
+import io.github.lbondoc.postmarked.data.myUserId
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -59,8 +73,19 @@ import io.github.lbondoc.postmarked.data.Song
 import io.github.lbondoc.postmarked.data.Songs
 import io.github.lbondoc.postmarked.data.places
 import io.github.lbondoc.postmarked.domain.color.Swatch
-import io.github.lbondoc.postmarked.domain.color.mergePalettes
+import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
+import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.DayNote
+import io.github.lbondoc.postmarked.data.DayNotes
+import io.github.lbondoc.postmarked.data.LastOpened
+import io.github.lbondoc.postmarked.data.OutboxEntry
+import io.github.lbondoc.postmarked.data.TripCache
+import io.github.lbondoc.postmarked.data.newFromFriends
+import io.github.lbondoc.postmarked.data.TripSnapshot
+import io.github.lbondoc.postmarked.data.isOffline
+import io.github.lbondoc.postmarked.data.loadOrCached
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.toRoutePoint
@@ -82,29 +107,91 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     // Kept here, not in the screen, so they survive rotating the phone.
     var view by mutableStateOf(GalleryView.All)
     var filter by mutableStateOf(GalleryFilter())
+    /** The day notes on the server (edits still in the outbox are laid over them when shown). */
+    var savedNotes by mutableStateOf<List<DayNote>>(emptyList())
+        private set
+
+    /** Selected gallery tiles, by cover id. Empty when not selecting. */
+    var selected by mutableStateOf(emptySet<String>())
 
     /** Set while an invite is on screen. It cannot be fetched again later, only replaced. */
     var inviteToken by mutableStateOf<String?>(null)
         private set
 
+    /** True when the network failed and the page shows the copy saved last time. */
+    var offline by mutableStateOf(false)
+        private set
+    private val cache = TripCache.shared
+
+    // When this trip was last opened before now. Read once, then the trip counts as opened, so the number
+    // shown is what's new since last time and it starts again from zero.
+    private val previousOpen = LastOpened(cache).let { opened ->
+        opened.of(tripId).also { opened.opened(tripId, Clock.System.now().toEpochMilliseconds()) }
+    }
+
+    /** "N new from friends": media others added since you last opened this trip. */
+    val newFromFriends: Int get() = newFromFriends(media, previousOpen, myUserId)
+
     fun load() = run {
-        trip = Trips.byId(tripId)
-        songs = Songs.ofTrip(tripId)
+        val loaded = loadOrCached(
+            { Trips.byId(tripId) },
+            { t -> cache.saveTrip(cache.trip(tripId)?.copy(trip = t) ?: TripSnapshot(t)) },
+            { cache.trip(tripId)?.trip },
+        )
+        trip = loaded.value
+        offline = loaded.offline
+        // Saved now so that adding photos works later without a network.
+        if (!offline) runCatching { Trips.bounds(tripId) }
+        // Songs are extras: offline the page simply shows none.
+        songs = try { Songs.ofTrip(tripId) } catch (e: Exception) { if (isOffline(e)) emptyList() else throw e }
     }
 
     fun loadSongs() = run { songs = Songs.ofTrip(tripId) }
 
     fun loadMedia() = run {
-        val items = Media.ofTrip(tripId)
-        thumbnails = Media.thumbnailUrls(tripId, items.map { it.id })
-        if (places.isEmpty()) places = Trips.places(tripId)
+        val loaded = loadOrCached(
+            { Media.ofTrip(tripId).let { it to Media.thumbnailUrls(tripId, it.map { m -> m.id }) } },
+            { (items, thumbs) -> cache.trip(tripId)?.let { cache.saveTrip(it.copy(media = items, thumbnails = thumbs)) } },
+            { cache.trip(tripId)?.takeIf { it.media.isNotEmpty() }?.let { it.media to it.thumbnails } },
+        )
+        val (items, thumbs) = loaded.value
+        thumbnails = thumbs
+        savedNotes = if (loaded.offline) cache.trip(tripId)?.notes.orEmpty() else try {
+            DayNotes.ofTrip(tripId).also { notes -> cache.trip(tripId)?.let { cache.saveTrip(it.copy(notes = notes)) } }
+        } catch (e: Exception) {
+            if (isOffline(e)) cache.trip(tripId)?.notes.orEmpty() else throw e
+        }
+        if (loaded.offline) offline = true
+        if (places.isEmpty() && !loaded.offline) places = Trips.places(tripId)
         media = items
+        if (!loaded.offline) Outbox.flush() // back online: send what was written meanwhile
         // Photos uploaded before palettes existed get theirs now, once (it is saved for everyone).
         val missing = items.filter { it.palette == null }
-        if (missing.isNotEmpty()) {
+        if (missing.isNotEmpty() && !loaded.offline) {
             val filled = Media.fillPalettes(tripId, missing)
             media = media.map { filled[it.id] ?: it }
         }
+    }
+
+    /** Saves a day's note through the outbox: shown at once, sent now or once back online; blank removes it. */
+    fun saveNote(day: LocalDate, body: String) = run {
+        Outbox.add(OutboxEntry.DayNote(Outbox.newId(), tripId, day, body.trim(), Outbox.now()))
+    }
+
+    /** Owner and editors only: the photo shown for this trip on the trip list. */
+    fun setCover(mediaId: String) = run {
+        Trips.setCover(tripId, mediaId)
+        trip = Trips.byId(tripId)
+    }
+
+    /** The items' own files to the share sheet (or Web Share). */
+    fun share(saver: PhotoSaver, items: List<TripMedia>) = run { saver.share(items.map { Media.savedFile(tripId, it) }) }
+
+    /** Deletes [mine] (the caller passes only the user's own items) and ends selecting. */
+    fun deleteSelected(mine: List<TripMedia>) = run {
+        for (item in mine) Media.delete(tripId, item)
+        selected = emptySet()
+        loadMedia()
     }
 
     fun invite(role: TripRole) = run { inviteToken = Trips.createInvite(tripId, role) }
@@ -136,6 +223,7 @@ fun TripScreen(
     onOpenSummaries: () -> Unit,
     onShare: (String) -> Unit,
     videoPlayer: VideoPlayer,
+    photoSaver: PhotoSaver,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
 ) {
     var choosingRole by remember { mutableStateOf(false) }
@@ -143,6 +231,13 @@ fun TripScreen(
     var viewing by remember { mutableStateOf<Pair<List<TripMedia>, Int>?>(null) }
     var confirmingExit by remember { mutableStateOf(false) }
     var filtering by remember { mutableStateOf(false) }
+    var confirmingDeleteSelected by remember { mutableStateOf(false) }
+    var editingNote by remember { mutableStateOf<LocalDate?>(null) }
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    val saving = remember { SaveJob(scope) }
+    val selectedItems = vm.media.filter { it.id in vm.selected }
+    val outbox by Outbox.entries.collectAsState() // day notes waiting to send
     val uploads by cameraRoll.uploads.collectAsState()
     val uploadProgress by cameraRoll.uploadProgress.collectAsState()
     val mobileData by cameraRoll.mobileData.collectAsState()
@@ -160,6 +255,11 @@ fun TripScreen(
         if (vm.view == GalleryView.Stops) planRoute(vm.media.mapNotNull { it.toRoutePoint() }).stops.map { it.at } else emptyList()
     }
     val stopNames = rememberStopNames(stopPoints)
+    // Each item's stop for the viewer's info panel, numbered as in the Stops view.
+    val stopTitles = remember(vm.media, stopNames) {
+        planRoute(vm.media.mapNotNull { it.toRoutePoint() }).stops
+            .flatMapIndexed { index, stop -> stop.ids.map { it to stopTitle(index, stopNames) } }.toMap()
+    }
 
     Scaffold(
         topBar = {
@@ -168,10 +268,31 @@ fun TripScreen(
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
             )
         },
+        bottomBar = {
+            if (vm.selected.isNotEmpty() || saving.progress != null) SelectionBar(
+                selectedItems, saving,
+                onSave = { saving.start(tripId, selectedItems, photoSaver) },
+                onShare = { vm.share(photoSaver, selectedItems) },
+                onDelete = { confirmingDeleteSelected = true },
+                onDone = { vm.selected = emptySet() },
+            )
+        },
     ) { insets ->
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Adaptive(96.dp),
-            modifier = Modifier.fillMaxSize().padding(insets),
+            // Press and hold a photo to start selecting, then drag across others to select the whole run.
+            modifier = Modifier.fillMaxSize().padding(insets).dragSelect(
+                gridState, scope, key = Unit,
+                order = {
+                    val start = vm.trip?.startDate ?: return@dragSelect emptyList()
+                    gallerySections(filterMedia(vm.media, vm.filter, vm.places), vm.media, vm.view, start, stopNames)
+                        .flatMap { section -> section.tiles.map { it.cover.id } }
+                },
+                selected = { vm.selected },
+                onRange = { base, range, on -> vm.selected = selectRange(base, range, on) },
+                selectHeld = true,
+            ),
             contentPadding = PaddingValues(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -179,6 +300,10 @@ fun TripScreen(
             // Everything above the photos is one full-width item.
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (vm.offline) OfflineBanner()
+                    vm.newFromFriends.takeIf { it > 0 }?.let { n ->
+                        Text("$n new from friends since you last looked", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (trip == null) {
                         if (vm.error == null) CircularProgressIndicator()
@@ -186,6 +311,9 @@ fun TripScreen(
                     }
                     look?.let { AlbumHeader(trip, it) } ?: Text(trip.dates, style = MaterialTheme.typography.titleMedium)
                     trip.regions.forEach { Text(it.label, style = MaterialTheme.typography.bodySmall) }
+                    cameraRoll.live?.let { live ->
+                        if (trip.myRole?.canEdit == true) LiveSwitch(trip, live)
+                    }
                     if (trip.myRole?.canEdit == true) ThemePicker(trip, tripPalette(vm.media)) { id, accent -> vm.setTheme(id, accent) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -225,6 +353,23 @@ fun TripScreen(
                             Text("Use mobile data")
                         }
                     }
+                    // The queue itself: each waiting or uploading item can be cancelled, or all of them.
+                    val queued = mine.filter { it.waiting }
+                    if (queued.isNotEmpty()) Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${queued.size} in the queue", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            TextButton(onClick = { cameraRoll.cancel(queued.map { it.mediaId }.toSet()) }) { Text("Cancel all") }
+                        }
+                        for (upload in queued) Row(verticalAlignment = Alignment.CenterVertically) {
+                            val sent = uploadProgress[upload.mediaId]
+                            Text(
+                                (if (upload.item.kind == MediaKind.Video) "Video" else "Photo") + " · " + upload.item.takenOn.format(DAY) +
+                                    (sent?.let { " · uploading ${(it * 100).toInt()}%" } ?: ""),
+                                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            )
+                            TextButton(onClick = { cameraRoll.cancel(setOf(upload.mediaId)) }) { Text("Cancel") }
+                        }
+                    }
                     val failed = mine.mapNotNull { it.problem }
                     if (failed.isNotEmpty()) {
                         Text(
@@ -234,12 +379,50 @@ fun TripScreen(
                     }
                 }
             }
-            if (trip != null) gallery(tripId, trip.startDate, vm, stopNames, onFilter = { filtering = true }) { list, index -> viewing = list to index }
+            if (trip != null) gallery(tripId, trip.startDate, vm, stopNames, onFilter = { filtering = true }, outbox = outbox, onEditNote = { editingNote = it }) { list, index -> viewing = list to index }
         }
     }
 
     if (filtering && trip != null) {
         FilterSheet(vm.media, vm.places, trip.startDate, vm.filter, onChange = { vm.filter = it }, onClose = { filtering = false })
+    }
+
+    editingNote?.let { day ->
+        var draft by remember(day) { mutableStateOf(notesToShow(vm.savedNotes, outbox, tripId)[day].orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { editingNote = null },
+            title = { Text("Note for ${day.format(DAY)}") },
+            text = {
+                OutlinedTextField(
+                    value = draft, onValueChange = { draft = it.take(4000) }, minLines = 3,
+                    label = { Text("What happened this day") }, modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.saveNote(day, draft); editingNote = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { editingNote = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (confirmingDeleteSelected) {
+        val (mine, skipped) = ownItems(selectedItems, myUserId)
+        AlertDialog(
+            onDismissRequest = { confirmingDeleteSelected = false },
+            title = { Text(if (mine.isEmpty()) "None of these are yours" else "Delete ${mine.size} of yours?") },
+            text = {
+                Text(
+                    listOfNotNull(
+                        if (mine.isEmpty()) "You can only delete photos and videos you added." else "They're removed from the trip for everyone.",
+                        skippedNote(skipped),
+                    ).joinToString(" "),
+                )
+            },
+            confirmButton = {
+                if (mine.isNotEmpty()) TextButton(onClick = { confirmingDeleteSelected = false; vm.deleteSelected(mine) }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmingDeleteSelected = false }) { Text("Cancel") } },
+        )
     }
 
     viewing?.let { (list, index) ->
@@ -249,6 +432,11 @@ fun TripScreen(
             start = index,
             thumbnails = vm.thumbnails,
             videoPlayer = videoPlayer,
+            photoSaver = photoSaver,
+            tripStart = trip?.startDate,
+            stopTitles = stopTitles,
+            coverId = trip?.coverMediaId,
+            onSetCover = if (trip?.myRole?.canEdit == true) { item -> vm.setCover(item.id) } else null,
             onDeleted = {
                 viewing = null
                 vm.loadMedia()
@@ -316,8 +504,59 @@ fun TripScreen(
     }
 }
 
-/** The trip's main colours, from every photo's palette. */
-fun tripPalette(media: List<TripMedia>): List<Swatch> = mergePalettes(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+/** The trip's main colours, from every photo's palette: its strongest hues, then at most one neutral. */
+fun tripPalette(media: List<TripMedia>): List<Swatch> = tripHues(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+
+/** "Live: add new photos automatically" (Android): on by default for editors while the trip is on. */
+@Composable
+private fun LiveSwitch(trip: Trip, live: LiveMode) {
+    LaunchedEffect(trip) { live.watch(trip) }
+    val choices by live.choices.collectAsState()
+    val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+    val on = liveModeOn(choices[trip.id], trip.myRole?.canEdit == true, today, trip.startDate, trip.endDate)
+    Row(
+        Modifier.toggleable(on, role = Role.Switch) { live.set(trip, it) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Switch(checked = on, onCheckedChange = null) // the whole row is the switch
+        Column {
+            Text("Live: add new photos automatically")
+            Text(
+                "New photos taken in the trip's places and dates are added in the background; you get a notification to review them.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/** What can be done with the selected tiles, and how saving them is going. Delete only covers your own. */
+@Composable
+private fun SelectionBar(
+    selected: List<TripMedia>,
+    saving: SaveJob,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val skipped = ownItems(selected, myUserId).second
+    Surface(tonalElevation = 3.dp) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            SavingBar(saving, MaterialTheme.colorScheme.onSurface)
+            if (selected.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${selected.size} selected", Modifier.weight(1f))
+                    TextButton(onClick = onSave, enabled = saving.progress?.finished != false) { Text("Save") }
+                    TextButton(onClick = onShare) { Text("Share") }
+                    TextButton(onClick = onDelete) { Text("Delete") }
+                    TextButton(onClick = onDone) { Text("Done") }
+                }
+                skippedNote(skipped)?.let { Text("Delete: $it", style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
 
 /** One square in a grid of a trip's photos and videos. */
 @Composable

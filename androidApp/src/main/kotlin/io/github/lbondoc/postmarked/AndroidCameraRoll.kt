@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import io.github.lbondoc.postmarked.data.CameraRoll
 import io.github.lbondoc.postmarked.data.DeviceMedia
+import io.github.lbondoc.postmarked.data.LiveMode
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.ScanResult
@@ -90,6 +91,10 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
     override val uploadProgress: StateFlow<Map<String, Float>> = UploadQueue.progress
 
     override fun upload(tripId: String, items: List<DeviceMedia>) = UploadQueue.add(activity.applicationContext, tripId, items)
+
+    override fun cancel(mediaIds: Set<String>) = UploadQueue.cancel(activity.applicationContext, mediaIds)
+
+    override val live: LiveMode = AndroidLiveMode(activity.applicationContext)
 
     override val mobileData: StateFlow<Boolean> = UploadQueue.mobileData
 

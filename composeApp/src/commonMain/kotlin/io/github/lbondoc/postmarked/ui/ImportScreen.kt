@@ -1,5 +1,7 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,15 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
@@ -40,10 +34,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -129,7 +121,7 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
 
     /** During a press-and-drag: the selection from when it began ([base]), with [range] all set to [on]. */
     fun setRange(base: Set<String>, range: List<String>, on: Boolean) {
-        val next = if (on) base + range else base - range.toSet()
+        val next = selectRange(base, range, on)
         selected.retainAll(next)
         selected += next.filterNot { it in selected }
     }
@@ -204,55 +196,12 @@ fun ImportScreen(
                 else -> LazyVerticalGrid(
                     state = gridState,
                     // Press and hold on a photo, then drag across others to tick (or untick) the whole run.
-                    modifier = Modifier.pointerInput(found, added) {
-                        val order = vm.all().map { it.uri }.filterNot { it in added }
-                        var anchor = -1
-                        var on = true
-                        var base = emptySet<String>()
-                        var finger = Offset.Zero
-                        var edgeScroll: Job? = null
-                        fun indexAt(at: Offset) = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
-                            at.x >= info.offset.x && at.x < info.offset.x + info.size.width &&
-                                at.y >= info.offset.y && at.y < info.offset.y + info.size.height
-                        }?.let { order.indexOf(it.key) }?.takeIf { it >= 0 }
-                        fun tickTo(at: Offset) {
-                            val here = indexAt(at) ?: return
-                            vm.setRange(base, order.subList(minOf(anchor, here), maxOf(anchor, here) + 1), on)
-                        }
-                        val edge = 72.dp.toPx()
-                        val fastest = 24.dp.toPx() // per frame, with the finger right at the edge
-                        fun stop() { anchor = -1; edgeScroll?.cancel(); edgeScroll = null }
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { at ->
-                                anchor = indexAt(at) ?: -1
-                                if (anchor >= 0) {
-                                    on = order[anchor] !in vm.selected // starting on a ticked photo unticks
-                                    base = vm.selected.toSet()
-                                    finger = at
-                                    // Holding near the top or bottom edge scrolls, faster the closer to the edge, ticking as it goes.
-                                    edgeScroll = scope.launch {
-                                        while (isActive) {
-                                            val speed = when {
-                                                finger.y < edge -> -(edge - finger.y) / edge * fastest
-                                                finger.y > size.height - edge -> (finger.y - (size.height - edge)) / edge * fastest
-                                                else -> 0f
-                                            }
-                                            if (speed != 0f && gridState.scrollBy(speed) != 0f) tickTo(finger)
-                                            delay(16)
-                                        }
-                                    }
-                                }
-                            },
-                            onDrag = { change, _ ->
-                                if (anchor < 0) return@detectDragGesturesAfterLongPress
-                                change.consume()
-                                finger = change.position
-                                tickTo(finger)
-                            },
-                            onDragEnd = { stop() },
-                            onDragCancel = { stop() },
-                        )
-                    },
+                    modifier = Modifier.dragSelect(
+                        gridState, scope, key = found to added,
+                        order = { vm.all().map { it.uri }.filterNot { it in added } },
+                        selected = { vm.selected.toSet() },
+                        onRange = vm::setRange,
+                    ),
                     columns = GridCells.Adaptive(96.dp),
                     contentPadding = PaddingValues(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -263,10 +212,10 @@ fun ImportScreen(
                         "Postmarked wasn't allowed to read where these were taken, so it can only go by dates. " +
                             "Allow \"media location\" in the app's settings for better matches.",
                     )
-                    section("Taken on this trip", null, found.onTrip, vm, added)
-                    section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added)
-                    section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added)
-                    section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added)
+                    section("Taken on this trip", null, found.onTrip, vm, added, cameraRoll::preview)
+                    section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added, cameraRoll::preview)
+                    section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added, cameraRoll::preview)
+                    section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added, cameraRoll::preview)
                 }
             }
         }
@@ -286,7 +235,14 @@ private fun LazyGridScope.header(title: String, explanation: String?, action: (@
     }
 }
 
-private fun LazyGridScope.section(title: String, explanation: String?, items: List<DeviceMedia>, vm: ImportViewModel, added: Set<String>) {
+private fun LazyGridScope.section(
+    title: String,
+    explanation: String?,
+    items: List<DeviceMedia>,
+    vm: ImportViewModel,
+    added: Set<String>,
+    preview: (DeviceMedia) -> Any?,
+) {
     if (items.isEmpty()) return
     val selectable = items.filterNot { it.uri in added }
     header("$title (${items.size})", explanation) {
@@ -296,12 +252,12 @@ private fun LazyGridScope.section(title: String, explanation: String?, items: Li
         }
     }
     items(items, key = { it.uri }) { item ->
-        Cell(item, selected = item.uri in vm.selected, added = item.uri in added, onToggle = { vm.toggle(item.uri) })
+        Cell(item, preview(item), selected = item.uri in vm.selected, added = item.uri in added, onToggle = { vm.toggle(item.uri) })
     }
 }
 
 @Composable
-private fun Cell(item: DeviceMedia, selected: Boolean, added: Boolean, onToggle: () -> Unit) {
+private fun Cell(item: DeviceMedia, preview: Any?, selected: Boolean, added: Boolean, onToggle: () -> Unit) {
     val kind = if (item.kind == MediaKind.Video) "Video" else "Photo"
     Box(
         Modifier.aspectRatio(1f)
@@ -312,8 +268,8 @@ private fun Cell(item: DeviceMedia, selected: Boolean, added: Boolean, onToggle:
             }
             .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary) else Modifier),
     ) {
-        // Coil loads straight from the camera roll's content:// address, decoding at grid size.
-        AsyncImage(model = item.uri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        // On the phone Coil loads straight from the camera roll's content:// address, decoding at grid size.
+        AsyncImage(model = preview, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         if (item.kind == MediaKind.Video) Badge("▶ Video", Modifier.align(Alignment.BottomStart))
         if (selected) Badge("✓", Modifier.align(Alignment.TopEnd))
         if (added) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), Alignment.Center) {

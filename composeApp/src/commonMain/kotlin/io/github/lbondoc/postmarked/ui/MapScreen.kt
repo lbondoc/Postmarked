@@ -36,58 +36,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.Routes
 import io.github.lbondoc.postmarked.data.TripRoute
 import io.github.lbondoc.postmarked.data.Trips
-import io.github.lbondoc.postmarked.domain.route.Stop
 import kotlin.math.roundToInt
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
 import kotlinx.datetime.format
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.addJsonArray
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
-import org.maplibre.compose.camera.CameraFit
-import org.maplibre.compose.expressions.dsl.asBoolean
-import org.maplibre.compose.expressions.dsl.asString
-import org.maplibre.compose.expressions.dsl.const
-import org.maplibre.compose.expressions.dsl.convertToColor
-import org.maplibre.compose.expressions.dsl.feature
-import org.maplibre.compose.expressions.dsl.format
-import org.maplibre.compose.expressions.dsl.not
-import org.maplibre.compose.expressions.dsl.span
-import org.maplibre.compose.interaction.ClickResult
-import org.maplibre.compose.layers.CircleLayer
-import org.maplibre.compose.layers.LineLayer
-import org.maplibre.compose.layers.SymbolLayer
-import org.maplibre.compose.map.MaplibreMap
-import org.maplibre.compose.map.rememberMapState
-import org.maplibre.compose.sources.GeoJsonData
-import org.maplibre.compose.sources.rememberGeoJsonSource
-import org.maplibre.compose.style.BaseStyle
-import org.maplibre.compose.util.DpPadding
-import org.maplibre.spatialk.geojson.BoundingBox
 
-// A free, keyless OpenStreetMap style in muted greys, so routes and pins stand out.
-// shortcut: OpenFreeMap's stock style, replace with Postmarked's own vintage style in the theming milestone.
-private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/positron"
 private const val METERS_PER_MILE = 1609.344
 
 // One colour per day of the trip, repeating after eight days.
 private val DAY_COLORS = listOf("#B5452F", "#2E7D7A", "#C7922B", "#3B4F7A", "#6F7D3C", "#7A4767", "#D06A3A", "#5C6670")
 
-private fun dayNumber(start: LocalDate, day: LocalDate) = start.daysUntil(day) + 1
-private fun dayColor(number: Int) = DAY_COLORS[(number - 1).mod(DAY_COLORS.size)]
-private fun parseHex(hex: String) = Color(hex.removePrefix("#").toLong(16) or 0xFF000000)
+internal fun dayNumber(start: LocalDate, day: LocalDate) = start.daysUntil(day) + 1
+internal fun dayColor(number: Int) = DAY_COLORS[(number - 1).mod(DAY_COLORS.size)]
+internal fun parseHex(hex: String) = Color(hex.removePrefix("#").toLong(16) or 0xFF000000)
 
 class MapViewModel(private val tripId: String) : ScreenModel() {
     var route by mutableStateOf<TripRoute?>(null)
@@ -125,7 +91,7 @@ fun MapScreen(tripId: String, onBack: () -> Unit, vm: MapViewModel = viewModel {
                     modifier = Modifier.padding(24.dp),
                 )
                 else -> Column(Modifier.fillMaxSize()) {
-                    RouteMap(route, start, onStop = { openStop = it }, modifier = Modifier.weight(0.6f))
+                    TripMap(route, start, onStop = { openStop = it }, modifier = Modifier.weight(0.6f))
                     Summary(route, start, Modifier.weight(0.4f))
                 }
             }
@@ -153,85 +119,6 @@ fun MapScreen(tripId: String, onBack: () -> Unit, vm: MapViewModel = viewModel {
             }
         }
     }
-}
-
-@Composable
-private fun RouteMap(route: TripRoute, start: LocalDate, onStop: (Int) -> Unit, modifier: Modifier) {
-    val lines = remember(route) { linesGeoJson(route, start) }
-    val stops = remember(route) { stopsGeoJson(route.plan.stops, start) }
-    // Everything drawn on top of the base map is declared here; MapLibre redraws it as the data changes.
-    val mapState = rememberMapState(baseStyle = BaseStyle.Uri(MAP_STYLE)) {
-        val lineSource = rememberGeoJsonSource(GeoJsonData.JsonString(lines))
-        // Flights and ferries: thin dashed grey, not counted as driving.
-        LineLayer(
-            id = "jumps",
-            source = lineSource,
-            filter = feature["jump"].asBoolean(),
-            color = const(Color(0xFF8A8A8A)),
-            width = const(2.dp),
-            dasharray = const(listOf(2, 2)),
-        )
-        LineLayer(
-            id = "drives",
-            source = lineSource,
-            filter = !feature["jump"].asBoolean(),
-            color = feature["color"].convertToColor(),
-            width = const(4.dp),
-        )
-        // Stops close together on screen merge into one numbered circle until zoomed in.
-        val stopSource = rememberGeoJsonSource(GeoJsonData.JsonString(stops)) {
-            cluster = true
-            clusterRadius = 40
-        }
-        CircleLayer(
-            id = "stop-groups",
-            source = stopSource,
-            filter = feature.has("point_count"),
-            color = const(Color(0xFF2B2B2B)),
-            radius = const(16.dp),
-            strokeColor = const(Color.White),
-            strokeWidth = const(2.dp),
-        )
-        SymbolLayer(
-            id = "stop-group-counts",
-            source = stopSource,
-            filter = feature.has("point_count"),
-            textField = format(span(feature["point_count_abbreviated"].asString())),
-            textFont = const(listOf("Noto Sans Bold")), // a font the map style's server has
-            textColor = const(Color.White),
-            textSize = const(13.sp),
-            textAllowOverlap = const(true),
-        )
-        CircleLayer(
-            id = "stops",
-            source = stopSource,
-            filter = !feature.has("point_count"),
-            color = feature["color"].convertToColor(),
-            radius = const(9.dp),
-            strokeColor = const(Color.White),
-            strokeWidth = const(2.dp),
-            onClick = { features ->
-                val index = (features.firstOrNull()?.properties?.get("stop") as? JsonPrimitive)?.intOrNull
-                if (index != null) onStop(index)
-                ClickResult.Consume
-            },
-        )
-    }
-    LaunchedEffect(route) {
-        val points = route.legs.flatMap { it.path } + route.plan.stops.map { it.at }
-        // At least about a kilometre across, so a one-stop trip isn't shown at street level.
-        val pad = 0.005
-        val box = BoundingBox(
-            west = points.minOf { it.lng } - pad, south = points.minOf { it.lat } - pad,
-            east = points.maxOf { it.lng } + pad, north = points.maxOf { it.lat } + pad,
-        )
-        try {
-            mapState.fitCameraToBounds(box, CameraFit(fitPadding = DpPadding(40.dp, 40.dp, 40.dp, 40.dp)))
-        } catch (_: IllegalStateException) {
-            // The map closed (Back pressed) before it could move: nothing to do.
-        }
-    }
-    MaplibreMap(modifier = modifier, state = mapState)
 }
 
 @Composable
@@ -281,40 +168,3 @@ private fun duration(seconds: Double): String {
     val minutes = (seconds / 60).roundToInt()
     return if (minutes < 60) "$minutes min" else "${minutes / 60} h ${(minutes % 60).toString().padStart(2, '0')} min"
 }
-
-private fun linesGeoJson(route: TripRoute, start: LocalDate): String = buildJsonObject {
-    put("type", "FeatureCollection")
-    putJsonArray("features") {
-        for (leg in route.legs) addJsonObject {
-            put("type", "Feature")
-            putJsonObject("properties") {
-                put("color", dayColor(dayNumber(start, leg.leg.day)))
-                put("jump", !leg.leg.driven)
-            }
-            putJsonObject("geometry") {
-                put("type", "LineString")
-                // GeoJSON is longitude first.
-                putJsonArray("coordinates") { for (p in leg.path) addJsonArray { add(p.lng); add(p.lat) } }
-            }
-        }
-    }
-}.toString()
-
-private fun stopsGeoJson(stops: List<Stop>, start: LocalDate): String = buildJsonObject {
-    put("type", "FeatureCollection")
-    putJsonArray("features") {
-        stops.forEachIndexed { index, stop ->
-            addJsonObject {
-                put("type", "Feature")
-                putJsonObject("properties") {
-                    put("stop", index)
-                    put("color", dayColor(dayNumber(start, stop.day)))
-                }
-                putJsonObject("geometry") {
-                    put("type", "Point")
-                    putJsonArray("coordinates") { add(stop.at.lng); add(stop.at.lat) }
-                }
-            }
-        }
-    }
-}.toString()

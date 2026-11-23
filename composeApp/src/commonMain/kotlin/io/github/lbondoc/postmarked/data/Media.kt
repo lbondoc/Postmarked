@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.number
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -106,7 +107,28 @@ fun batchProgress(uploads: List<QueuedUpload>, partial: Map<String, Float>): Bat
     return BatchProgress(done, batch.size, ((done + inFlight) / batch.size).toFloat())
 }
 
+/**
+ * The queue with [ids] cancelled: waiting, uploading and failed items go; finished ones stay (they are in the
+ * gallery, and deleting them is the gallery's job). Returns the new queue and the items cancelled, whose partly
+ * uploaded files the caller removes with [Media.discardUpload].
+ */
+fun cancelUploads(queue: List<QueuedUpload>, ids: Set<String>): Pair<List<QueuedUpload>, List<QueuedUpload>> {
+    val (cancelled, kept) = queue.partition { it.mediaId in ids && !it.finished }
+    return kept to cancelled
+}
+
 class ScanResult(val items: List<DeviceMedia>, val locationAllowed: Boolean)
+
+/** The per-trip "Live: add new photos automatically" switch and the background job behind it. */
+interface LiveMode {
+    /** The person's own choice per trip id. A trip with none follows [io.github.lbondoc.postmarked.domain.trip.liveModeOn]'s default. */
+    val choices: StateFlow<Map<String, Boolean>>
+
+    /** Remembers [trip] (its dates and your role) for the background job, and starts the job if live is on. */
+    fun watch(trip: Trip)
+
+    fun set(trip: Trip, on: Boolean)
+}
 
 /** What only the platform can do with the phone's photos: Android today, iOS later. */
 interface CameraRoll {
@@ -128,6 +150,18 @@ interface CameraRoll {
     val mobileData: StateFlow<Boolean>
 
     fun allowMobileData(allowed: Boolean)
+
+    /**
+     * Cancels these queued items (by media id): one that is uploading stops, and any files it already sent
+     * are deleted. Finished items stay.
+     */
+    fun cancel(mediaIds: Set<String>)
+
+    /** Live mode (SPEC §5): new photos taken on a trip are queued by themselves. Null where there is none (web, iOS). */
+    val live: LiveMode? get() = null
+
+    /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
+    fun preview(item: DeviceMedia): Any? = item.uri
 }
 
 /** A photo or video in a trip, as the gallery and map see it. */
@@ -146,6 +180,8 @@ data class TripMedia(
     val palette: List<PaletteEntry>? = null,
     /** Who took it. */
     val profile: Profile? = null,
+    /** When it was uploaded, for "N new from friends". */
+    @SerialName("created_at") val createdAt: String? = null,
 ) {
     val swatches: List<Swatch> get() = palette.orEmpty().map { it.toSwatch() }
 
@@ -192,11 +228,21 @@ object Media {
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
             // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,profile:profiles!contributor(display_name)")
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
         }.decodeList()
+
+    /** How many items others added to [tripId] after [sinceMs], for the trip list (ids only, nothing else). */
+    suspend fun newFromFriendsCount(tripId: String, sinceMs: Long, me: String?): Int =
+        supabase.from("media").select(Columns.list("id")) {
+            filter {
+                eq("trip_id", tripId)
+                gt("created_at", Instant.fromEpochMilliseconds(sinceMs).toString())
+                me?.let { neq("contributor", it) }
+            }
+        }.decodeList<JsonObject>().size
 
     /** True when this exact file is already in the trip, from anyone. */
     suspend fun exists(tripId: String, sha256: String): Boolean =
@@ -223,6 +269,16 @@ object Media {
         if (e.code == "23505") false else throw e // 23505: Postgres "unique violation"
     }
 
+    /**
+     * Removes what a cancelled upload left behind: its database row, if it got that far, and every file it may
+     * have sent. Deleting files that were never uploaded is harmless, which covers a file finishing just as the
+     * upload is cancelled.
+     */
+    suspend fun discardUpload(upload: QueuedUpload) {
+        supabase.from("media").delete { filter { eq("id", upload.mediaId) } }
+        deleteFiles(upload.item.kind.files.map { path(upload.tripId, upload.mediaId, it) })
+    }
+
     suspend fun deleteFiles(paths: List<String>) {
         paths.chunked(500).forEach { bucket.delete(it) }
     }
@@ -240,9 +296,32 @@ object Media {
         return ids.mapNotNull { id -> byPath[path(tripId, id, file)]?.let { id to it } }.toMap()
     }
 
+    /** Each trip's cover thumbnail, by trip id, in one request for the whole trip list. */
+    suspend fun coverUrls(trips: List<Trip>): Map<String, String> {
+        val covers = trips.mapNotNull { trip -> trip.coverMediaId?.let { trip.id to path(trip.id, it, MediaKind.THUMB) } }
+        if (covers.isEmpty()) return emptyMap()
+        val byPath = bucket.createSignedUrls(1.hours, covers.map { it.second }).associate { it.path to it.signedURL }
+        return covers.mapNotNull { (trip, p) -> byPath[p]?.let { trip to it } }.toMap()
+    }
+
     /** A link to the full-size picture, or to the video itself. */
     suspend fun viewUrl(tripId: String, item: TripMedia): String =
         signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
+
+    /** The item's own file, the original photo or the video, to save or share; named by when it was taken. */
+    suspend fun savedFile(tripId: String, item: TripMedia): SavedFile {
+        val file = if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL
+        val url = bucket.createSignedUrl(path(tripId, item.id, file), 1.hours)
+        val t = item.localTime
+        val stamp = "${t.year}${pad(t.month.number)}${pad(t.day)}-${pad(t.hour)}${pad(t.minute)}${pad(t.second)}"
+        return SavedFile(url, "postmarked-$stamp-${item.id.take(8)}", item.kind)
+    }
+
+    private fun pad(n: Int) = n.toString().padStart(2, '0')
+
+    /** The size in bytes of the item's main file (the original photo, or the video), for the info panel. */
+    suspend fun fileSize(tripId: String, item: TripMedia): Long? =
+        bucket.info(path(tripId, item.id, if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL)).size
 
     /** Removes one of your own items: the row first, so the gallery never shows an item whose files are gone. */
     suspend fun delete(tripId: String, item: TripMedia) {

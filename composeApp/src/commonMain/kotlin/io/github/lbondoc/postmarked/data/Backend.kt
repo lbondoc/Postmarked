@@ -40,6 +40,9 @@ val myUserId: String? get() = supabase.auth.currentUserOrNull()?.id
  */
 val pendingInvite = MutableStateFlow<String?>(null)
 
+/** A trip to open, from a tapped notification (live mode's "Review"). */
+val pendingTrip = MutableStateFlow<String?>(null)
+
 /** A sentence fit to show the user. Database functions already raise readable messages. */
 fun Throwable.userMessage(): String = when (this) {
     is AuthRestException -> errorDescription

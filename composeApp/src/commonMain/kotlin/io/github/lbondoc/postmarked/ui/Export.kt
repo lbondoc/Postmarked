@@ -1,5 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.domain.summary.arrange
+import io.github.lbondoc.postmarked.domain.summary.panoramaSlices
+import io.github.lbondoc.postmarked.domain.summary.noteToQuote
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -148,6 +151,14 @@ private suspend fun renderExport(material: SummaryMaterial, d: Drawing, kind: Ex
         val solo = d.summary.tiles.filter { it.media != null || it.bg != null }
         when (kind) {
             ExportKind.Single -> listOf(ExportedImage("$base.jpg", image { whole(d) }))
+            // A panorama: drawn once, as wide as all its slides together, then cut so the photo joins up when swiped.
+            ExportKind.Carousel if d.layout.slides > 1 -> {
+                val wide = ImageBitmap(size.width * d.layout.slides, size.height)
+                CanvasDrawScope().draw(ONE, LayoutDirection.Ltr, Canvas(wide), Size(wide.width.toFloat(), wide.height.toFloat())) { whole(d) }
+                panoramaSlices(d.layout.slides, wide.width.toDouble()).mapIndexed { i, (left, _) ->
+                    ExportedImage("$base-${i + 1}.jpg", image { drawImage(wide, topLeft = Offset(-left.toFloat(), 0f)) })
+                }
+            }
             ExportKind.Carousel -> listOf(ExportedImage("$base-1.jpg", image { whole(d) })) +
                 solo.mapIndexed { i, tile -> ExportedImage("$base-${i + 2}.jpg", image { alone(d, tile) }) }
             // Numbered in posting order: post 1 first, so it ends up bottom-right of the profile.
@@ -165,10 +176,14 @@ private fun DrawScope.whole(d: Drawing) {
     val borderColour = (if (theme.exportBorderInk) c.ink else c.paper).color()
     drawRect(borderColour)
     val border = theme.exportBorder * w
-    val canvas = fit(d.layout.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
+    // Adaptive layouts follow each photo's own shape, which the downloaded pictures tell exactly.
+    val arranged = d.layout.arrange(List(d.layout.slots.size) { i ->
+        d.summary.tiles.getOrNull(i)?.media?.let { d.pictures[it] }?.let { it.width.toDouble() / it.height }
+    })
+    val canvas = fit(arranged.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
     drawRect(c.paper.color(), Offset(canvas.left.toFloat(), canvas.top.toFloat()), Size(canvas.width.toFloat(), canvas.height.toFloat()))
 
-    d.layout.slots.forEachIndexed { i, slot ->
+    arranged.slots.forEachIndexed { i, slot ->
         val tile = d.summary.tiles.getOrElse(i) { SummaryTile() }
         val b = Box(canvas.left + slot.x * canvas.width, canvas.top + slot.y * canvas.height, slot.w * canvas.width, slot.h * canvas.height)
         rotate(slot.rotation.toFloat(), Offset((b.left + b.width / 2).toFloat(), (b.top + b.height / 2).toFloat())) {
@@ -309,7 +324,7 @@ fun ExportSheet(
     val scope = rememberCoroutineScope()
     val measurer = rememberTextMeasurer()
     val font = headingFont()
-    var kind by remember { mutableStateOf(ExportKind.Single) }
+    var kind by remember { mutableStateOf(if (layout.slides > 1) ExportKind.Carousel else ExportKind.Single) }
     var size by remember { mutableStateOf(if (layout == Layout.Grid3x3) ExportSize.Square else ExportSize.Portrait) }
     var song by remember { mutableStateOf(songs.firstOrNull()) }
     fun generated() = caption(
@@ -321,6 +336,8 @@ fun ExportSheet(
         places = material.trip.regions.map { it.label.substringBefore(',') },
         song = song?.let { SongCredit(it.title, it.artist) },
         colour = summary.colours.firstOrNull()?.takeIf { summary.mode == SummaryMode.Monochrome.name }?.let { colourName(Oklab.fromRgb(hexToRgb(it))) },
+        // The one day note among the days this summary's photos are from, if there is one.
+        note = noteToQuote(summary.tiles.mapNotNull { tile -> tile.media?.let { material.byId[it]?.takenOn } }.toSet(), material.notes),
     )
     var text by remember { mutableStateOf(generated()) }
     var working by remember { mutableStateOf<String?>(null) }
@@ -360,7 +377,11 @@ fun ExportSheet(
             ChipRow(ExportKind.entries.filter { it != ExportKind.Grid || layout == Layout.Grid3x3 }, kind, { it.label }) { kind = it }
             when (kind) {
                 ExportKind.Single -> Text("The whole summary as one picture.", style = MaterialTheme.typography.bodySmall)
-                ExportKind.Carousel -> Text("The summary first, then each tile as its own slide.", style = MaterialTheme.typography.bodySmall)
+                ExportKind.Carousel -> Text(
+                    if (layout.slides > 1) "The panorama cut into ${layout.slides} slides that join up when swiped."
+                    else "The summary first, then each tile as its own slide.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 ExportKind.Grid -> Text(
                     "Nine posts that line up on your profile. Post them in order, starting with post 1: Instagram puts the newest at the top left.",
                     style = MaterialTheme.typography.bodySmall,

@@ -4,6 +4,8 @@ import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.PaletteEntry
 import io.github.lbondoc.postmarked.data.Profile
 import io.github.lbondoc.postmarked.data.TripMedia
+import io.github.lbondoc.postmarked.domain.color.COLOUR_WHEEL
+import io.github.lbondoc.postmarked.domain.color.rgbToHex
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -58,6 +60,30 @@ class GalleryTest {
     }
 
     @Test
+    fun aByDayGroupCarriesItsNote() {
+        val notes = mapOf(LocalDate(2026, 10, 4) to "Desert heat, then a sunset at Joshua Tree")
+        val sections = gallerySections(items, items, GalleryView.Days, LocalDate(2026, 10, 3), notes = notes)
+        assertEquals(listOf(null, "Desert heat, then a sunset at Joshua Tree"), sections.map { it.note })
+        assertEquals(listOf(LocalDate(2026, 10, 3), LocalDate(2026, 10, 4)), sections.map { it.day })
+        // Other views have no day groups, so no notes.
+        assertEquals(listOf(null), gallerySections(items, items, GalleryView.All, LocalDate(2026, 10, 3), notes = notes).map { it.note })
+    }
+
+    @Test
+    fun queuedNoteEditsShowOverSavedOnes() {
+        val saved = listOf(
+            io.github.lbondoc.postmarked.data.DayNote(LocalDate(2026, 10, 3), "Fog", "2026-10-03T20:00:00Z"),
+            io.github.lbondoc.postmarked.data.DayNote(LocalDate(2026, 10, 4), "Heat", "2026-10-04T20:00:00Z"),
+        )
+        val outbox = listOf(
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("1", "t1", LocalDate(2026, 10, 3), "Fog, then sun", 1),
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("2", "t1", LocalDate(2026, 10, 4), "", 2), // cleared
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("3", "other-trip", LocalDate(2026, 10, 5), "Not ours", 3),
+        )
+        assertEquals(mapOf(LocalDate(2026, 10, 3) to "Fog, then sun"), io.github.lbondoc.postmarked.data.notesToShow(saved, outbox, "t1"))
+    }
+
+    @Test
     fun stopsComeFromTheRouteAndUnlocatedItemsGoLast() {
         val sections = gallerySections(items, items, GalleryView.Stops, LocalDate(2026, 10, 3))
         assertEquals(listOf("Stop 1 · 3", "Stop 2 · 1", "No location · 1"), sections.map { it.title })
@@ -93,6 +119,25 @@ class GalleryTest {
         val all = listOf(yellowish, bluish, item("unknown", "2026-10-03T21:00:00Z"))
         assertEquals(listOf("sunflowers"), filterMedia(all, GalleryFilter(colours = setOf("#E0B020")), places).map { it.id })
         assertEquals(listOf("sunflowers", "ocean"), filterMedia(all, GalleryFilter(colours = setOf("#E0B020", "#3A7BC8")), places).map { it.id })
+    }
+
+    @Test
+    fun aWheelColourFiltersToExactlyItsPhotosAndAnUnusedOneCountsZero() {
+        val sunflowers = item("sunflowers", "2026-10-03T19:00:00Z").copy(palette = listOf(PaletteEntry("#F2C230", 0.7), PaletteEntry("#3F8F3A", 0.3)))
+        val ocean = item("ocean", "2026-10-03T20:00:00Z").copy(palette = listOf(PaletteEntry("#4A90D9", 0.9), PaletteEntry("#F4F4F4", 0.1)))
+        val snow = item("snow", "2026-10-03T21:00:00Z").copy(palette = listOf(PaletteEntry("#F4F4F4", 0.8), PaletteEntry("#4A90D9", 0.2)))
+        val all = listOf(sunflowers, ocean, snow, item("unknown", "2026-10-03T22:00:00Z"))
+        val wheel = COLOUR_WHEEL.associate { (name, rgb) -> name to rgbToHex(rgb) }
+        val counts = countEach(all, GalleryFilter(), places, wheel.values.toList()) { copy(colours = setOf(it)) }
+        val byName = wheel.mapValues { (_, hex) -> counts.getValue(hex) }
+
+        assertEquals(listOf("ocean", "snow"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("Blue"))), places).map { it.id })
+        assertEquals(2, byName["Blue"])
+        assertEquals(listOf("sunflowers"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("Yellow"))), places).map { it.id })
+        assertEquals(listOf("snow"), filterMedia(all, GalleryFilter(colours = setOf(wheel.getValue("White"))), places).map { it.id })
+        assertEquals(0, byName["Purple"]) // nothing purple in the trip: shown greyed out
+        assertEquals(0, byName["Black"])
+        assertEquals(12, byName.size)
     }
 
     @Test

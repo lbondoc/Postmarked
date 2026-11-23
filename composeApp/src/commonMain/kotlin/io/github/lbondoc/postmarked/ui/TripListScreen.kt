@@ -1,5 +1,15 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.myUserId
+import io.github.lbondoc.postmarked.data.Media
+import io.github.lbondoc.postmarked.data.LastOpened
+import io.github.lbondoc.postmarked.data.TripCache
+import io.github.lbondoc.postmarked.data.loadOrCached
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,8 +58,31 @@ class TripListViewModel : ScreenModel() {
     /** null until the first load finishes. */
     var trips by mutableStateOf<List<Trip>?>(null)
         private set
+    /** Cover thumbnails by trip id, for trips that have one. */
+    var covers by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
 
-    fun refresh() = run { trips = Trips.mine() }
+    /** "N new" per trip id: media others added since you last opened it on this device. */
+    var newCounts by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+
+    /** True when the network failed and the list is the one saved last time. */
+    var offline by mutableStateOf(false)
+        private set
+
+    fun refresh() = run {
+        val cache = TripCache.shared
+        val loaded = loadOrCached({ Trips.mine() }, cache::saveTrips, { cache.trips().ifEmpty { null } })
+        trips = loaded.value
+        offline = loaded.offline
+        covers = if (offline) cache.covers() else Media.coverUrls(loaded.value).also(cache::saveCovers)
+        if (!offline) {
+            val opened = LastOpened(cache).all()
+            newCounts = loaded.value.mapNotNull { trip ->
+                opened[trip.id]?.let { since -> trip.id to Media.newFromFriendsCount(trip.id, since, myUserId) }
+            }.toMap()
+        }
+    }
 
     fun join(linkOrCode: String, onJoined: (String) -> Unit) = run { onJoined(Trips.join(tokenFromInvite(linkOrCode))) }
 
@@ -97,9 +130,21 @@ fun TripListScreen(
                     }
                 }
             }
+            if (vm.offline) item { OfflineBanner() }
             items(vm.trips.orEmpty(), key = { it.id }) { trip ->
                 ListItem(
+                    leadingContent = vm.covers[trip.id]?.let { url ->
+                        {
+                            AsyncImage(
+                                model = url, contentDescription = "Trip cover", contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
+                            )
+                        }
+                    },
                     headlineContent = { Text(trip.name) },
+                    trailingContent = vm.newCounts[trip.id]?.takeIf { it > 0 }?.let { n ->
+                        { Text("$n new", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) }
+                    },
                     supportingContent = { Text(trip.dates + "\n" + trip.regions.joinToString(" · ") { it.label.substringBefore(',') }) },
                     modifier = Modifier.fillMaxWidth().clickable { onOpen(trip.id) },
                 )
