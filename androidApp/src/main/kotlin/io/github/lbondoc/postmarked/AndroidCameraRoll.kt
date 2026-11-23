@@ -2,11 +2,13 @@ package io.github.lbondoc.postmarked
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import io.github.lbondoc.postmarked.data.CameraRoll
 import io.github.lbondoc.postmarked.data.DeviceMedia
@@ -42,6 +44,32 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
     private val ask = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         waiting?.resume(Unit)
         waiting = null
+    }
+
+    // Android's photo picker: any photo or video, any date, with no storage permission needed.
+    private var picking: CancellableContinuation<List<Uri>>? = null
+    private val picker = activity.registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        picking?.resume(uris)
+        picking = null
+    }
+
+    override suspend fun pickAny(): List<DeviceMedia> {
+        val uris = suspendCancellableCoroutine { continuation ->
+            picking = continuation
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        }
+        return withContext(Dispatchers.IO) {
+            uris.map { uri ->
+                // Uploads run in the background, maybe after the app closes or the phone restarts: keep access.
+                runCatching { activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                val kind = if (activity.contentResolver.getType(uri)?.startsWith("video/") == true) MediaKind.Video else MediaKind.Photo
+                val takenMs = runCatching {
+                    activity.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN), null, null, null)
+                        ?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null }
+                }.getOrNull() ?: System.currentTimeMillis() // shortcut: no date known, so "now"; EXIF's date still sets the day
+                activity.readDeviceMedia(uri, kind, takenMs)
+            }
+        }
     }
 
     private fun granted(permission: String) =

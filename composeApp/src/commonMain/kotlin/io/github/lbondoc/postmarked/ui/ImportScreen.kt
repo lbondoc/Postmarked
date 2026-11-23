@@ -73,8 +73,11 @@ class Found(
     val elsewhere: List<DeviceMedia>,
     val otherDays: List<DeviceMedia>,
     val locationAllowed: Boolean,
+    /** Neither the trip's dates nor its places: kept so they can still be added by hand. */
+    val otherDates: List<DeviceMedia> = emptyList(),
 ) {
-    val isEmpty get() = onTrip.isEmpty() && noLocation.isEmpty() && elsewhere.isEmpty() && otherDays.isEmpty()
+    val all get() = onTrip + noLocation + elsewhere + otherDays + otherDates
+    val isEmpty get() = all.isEmpty()
 }
 
 /**
@@ -83,13 +86,15 @@ class Found(
  * wherever their dates and GPS (often missing from photos copied to a computer) sorted them.
  */
 fun startTicked(found: Found, alreadyAdded: Set<String>, pickedByHand: Boolean): List<String> =
-    (if (pickedByHand) found.onTrip + found.noLocation + found.elsewhere + found.otherDays else found.onTrip)
-        .map { it.uri }.filterNot { it in alreadyAdded }
+    (if (pickedByHand) found.all else found.onTrip).map { it.uri }.filterNot { it in alreadyAdded }
 
 fun sortForTrip(scan: ScanResult, trip: TripBounds): Found {
     val byMatch = scan.items.groupBy { matchTrip(it.takenOn, it.location, trip.start, trip.end, trip.area) }
     val (noLocation, elsewhere) = byMatch[TripMatch.DatesOnly].orEmpty().partition { it.location == null }
-    return Found(byMatch[TripMatch.Both].orEmpty(), noLocation, elsewhere, byMatch[TripMatch.LocationOnly].orEmpty(), scan.locationAllowed)
+    return Found(
+        byMatch[TripMatch.Both].orEmpty(), noLocation, elsewhere, byMatch[TripMatch.LocationOnly].orEmpty(), scan.locationAllowed,
+        otherDates = byMatch[TripMatch.Neither].orEmpty(),
+    )
 }
 
 class ImportViewModel(private val tripId: String) : ScreenModel() {
@@ -103,7 +108,7 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
     fun load(cameraRoll: CameraRoll, alreadyAdded: Set<String>) = run {
         accessRefused = !cameraRoll.requestAccess()
         if (accessRefused) return@run
-        val trip = Trips.bounds(tripId)
+        val trip = Trips.bounds(tripId).also { bounds = it }
         val zone = TimeZone.currentSystemDefault()
         val from = trip.start.minus(LOOK_AROUND_DAYS, DateTimeUnit.DAY).atStartOfDayIn(zone)
         val until = trip.end.plus(LOOK_AROUND_DAYS + 1, DateTimeUnit.DAY).atStartOfDayIn(zone)
@@ -113,12 +118,27 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
         found = result
     }
 
+    private var bounds: TripBounds? = null
+
+    /**
+     * "Add photos from any date": the platform's own picker (the phone's photo picker, the website's file
+     * picker), whatever the dates. What comes back joins the list, sorted like the rest, and starts ticked.
+     */
+    fun pickMore(cameraRoll: CameraRoll, alreadyAdded: Set<String>) = run {
+        val picked = cameraRoll.pickAny()
+        if (picked.isEmpty()) return@run
+        val trip = bounds ?: Trips.bounds(tripId).also { bounds = it }
+        val known = all().map { it.uri }.toSet()
+        found = sortForTrip(ScanResult(all() + picked.filterNot { it.uri in known }, found?.locationAllowed ?: true), trip)
+        selected += picked.map { it.uri }.filterNot { it in alreadyAdded || it in selected }
+    }
+
     fun toggle(uri: String) {
         if (!selected.remove(uri)) selected += uri
     }
 
     /** Everything shown, in screen order. */
-    fun all(): List<DeviceMedia> = found?.run { onTrip + noLocation + elsewhere + otherDays }.orEmpty()
+    fun all(): List<DeviceMedia> = found?.all.orEmpty()
 
     fun chosen(): List<DeviceMedia> = all().filter { it.uri in selected }
 
@@ -201,7 +221,10 @@ fun ImportScreen(
                 }
                 vm.error != null -> Message(vm.error!!) { TextButton(onClick = { vm.load(cameraRoll, added) }) { Text("Try again") } }
                 found == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                found.isEmpty -> Message("No photos or videos from this trip's dates are on this phone.")
+                found.isEmpty -> Message(
+                    if (cameraRoll.pickedByHand) "No photos or videos were chosen."
+                    else "No photos or videos from around this trip's dates are on this phone.",
+                ) { TextButton(onClick = { vm.pickMore(cameraRoll, added) }) { Text("Add photos from any date") } }
                 else -> LazyVerticalGrid(
                     state = gridState,
                     // Press and hold on a photo, then drag across others to tick (or untick) the whole run.
@@ -221,10 +244,14 @@ fun ImportScreen(
                         "Postmarked wasn't allowed to read where these were taken, so it can only go by dates. " +
                             "Allow \"media location\" in the app's settings for better matches.",
                     )
+                    header("Something missing?", "Edited copies and photos from other dates can be added too.") {
+                        TextButton(onClick = { vm.pickMore(cameraRoll, added) }) { Text("Add photos from any date") }
+                    }
                     section("Taken on this trip", null, found.onTrip, vm, added, cameraRoll::preview)
                     section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added, cameraRoll::preview)
                     section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added, cameraRoll::preview)
                     section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added, cameraRoll::preview)
+                    section("From other dates", "Outside the trip's dates and places, or with no date saved. Tick any that belong to the trip.", found.otherDates, vm, added, cameraRoll::preview)
                 }
             }
         }

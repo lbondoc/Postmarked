@@ -170,6 +170,9 @@ interface CameraRoll {
      */
     val pickedByHand: Boolean get() = false
 
+    /** Photos and videos chosen in the platform's own picker, from any date. Empty where there is none. */
+    suspend fun pickAny(): List<DeviceMedia> = emptyList()
+
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri
 }

@@ -32,7 +32,9 @@ fun Context.originalUri(uri: Uri): Uri =
     }
 
 fun Context.openOriginal(uri: Uri): InputStream =
-    contentResolver.openInputStream(originalUri(uri)) ?: throw FileNotFoundException(uri.toString())
+    // A photo-picker link can't ask for the original (it throws); the file it opens is still the photo.
+    runCatching { contentResolver.openInputStream(originalUri(uri)) }.getOrNull()
+        ?: contentResolver.openInputStream(uri) ?: throw FileNotFoundException(uri.toString())
 
 /** One camera-roll item with its time and place read from the file. Blocking: call off the main thread. */
 fun Context.readDeviceMedia(uri: Uri, kind: MediaKind, takenAtMs: Long): DeviceMedia {

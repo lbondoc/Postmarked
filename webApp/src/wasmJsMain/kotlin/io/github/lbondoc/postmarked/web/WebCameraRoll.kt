@@ -89,6 +89,8 @@ internal object WebCameraRoll : CameraRoll {
         return ScanResult(items, locationAllowed = true)
     }
 
+    override suspend fun pickAny(): List<DeviceMedia> = scan(0, 0).items // the same file picker, any dates
+
     override fun preview(item: DeviceMedia): Any? = picked[item.uri]?.preview
 
     private suspend fun read(file: JsAny): DeviceMedia? {
