@@ -1118,6 +1118,53 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - The generated panorama fills its one slot with the first matching photo. Picking the widest photo needs
     photo aspect ratios, which come with S3/S4.
 
+## S3 Justified rows and reflow by photo ratio
+- Changes:
+  - `core/domain/.../summary/Justify.kt` (new): pure `justify(aspects, width, gap, targetHeight)`, the task's
+    function and SPEC §8.4's formula $h = \frac{W - g(n-1)}{\sum r_i}$. Rows break greedily where $h$ comes
+    closest to the target height, and a photo that alone would be no taller than the target (very wide) gets
+    a row to itself.
+  - `core/domain/.../summary/Layouts.kt`:
+    - `Layout.adaptive`, set on Filmstrip, Polaroids and Magazine (SPEC's adaptive list) and on the new
+      `JustifiedRows` (6 photos, target row 0.36 of the width).
+    - `Arrangement(aspect, slots)` and `Layout.arrange(aspects)`. Strict layouts (3 × 3, 2 × 3, 2-up, 4-up,
+      panoramas) are unchanged, so the profile grid still lines up. Justified rows reflow completely,
+      including the canvas height. The other adaptive layouts fit each photo's own shape inside its slot,
+      centred. An unknown shape (still loading, or a text tile) leaves the slot as designed.
+    - `JustifiedRows`' static slots are its arrangement for six 4:3 photos, so the existing layout tests check
+      it too.
+  - `ui/SummaryCanvas.kt`:
+    - The editor canvas draws from `layout.arrange(...)`, including its shape, the slot positions and
+      tap/drag hit-testing.
+    - `rememberPictureAspects` measures each tile's picture through Coil with the same request size the tile
+      draws at, so it's a cache hit, not a second download. The layout reflows as the shapes arrive.
+  - `ui/Export.kt`: `whole()` arranges with the exact shapes of the downloaded pictures, so exports match the
+    editor.
+  - `JustifyTest.kt` (new), the task's check:
+    - Every row exactly fills $W$ (to $10^{-9}$), every photo appears once in order, and non-final rows are
+      near the target.
+    - A portrait stays portrait ($w/h = 0.66$ exactly).
+    - A 6:1 photo gets `JustifiedRow(3, 4, W/6)` to itself.
+    - Plus: the `JustifiedRows` layout reflows (portraits make a taller canvas, each slot keeps its photo's
+      shape, slots stay on the canvas), Filmstrip fits a portrait, and the 3 × 3 grid ignores shapes.
+- Approach: the photo shapes come from the pictures already being loaded, not from stored dimensions.
+  Media rows don't record width or height, and adding them would need a migration plus a backfill of every
+  existing photo. I considered a separate justified-rows renderer and rejected it: a layout that returns
+  slots fits the existing canvas, export and drag-to-swap code unchanged.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*JustifyTest*'` → `tests="5" skipped="0" failures="0"
+    errors="0"`.
+  - `LayoutsTest` → 7/7, including JustifiedRows on the canvas without overlap.
+  - Domain tests pass on wasm. All targets compile.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - **Needs manual check:** the editor reflowing as pictures load. There may be a brief jump from 4:3
+    placeholders to real shapes.
+  - Magazine and Polaroid fit photos inside their slots, which can leave paper around a photo whose shape is
+    far from the slot's. A deeper reflow of those two is possible later.
+  - S4's crop ratio picker builds on `arrange` (a chosen ratio replaces the photo's own).
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

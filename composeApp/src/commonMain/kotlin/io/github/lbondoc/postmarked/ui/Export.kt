@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.domain.summary.arrange
 import io.github.lbondoc.postmarked.domain.summary.panoramaSlices
 import io.github.lbondoc.postmarked.domain.summary.noteToQuote
 import androidx.compose.foundation.horizontalScroll
@@ -175,10 +176,14 @@ private fun DrawScope.whole(d: Drawing) {
     val borderColour = (if (theme.exportBorderInk) c.ink else c.paper).color()
     drawRect(borderColour)
     val border = theme.exportBorder * w
-    val canvas = fit(d.layout.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
+    // Adaptive layouts follow each photo's own shape, which the downloaded pictures tell exactly.
+    val arranged = d.layout.arrange(List(d.layout.slots.size) { i ->
+        d.summary.tiles.getOrNull(i)?.media?.let { d.pictures[it] }?.let { it.width.toDouble() / it.height }
+    })
+    val canvas = fit(arranged.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
     drawRect(c.paper.color(), Offset(canvas.left.toFloat(), canvas.top.toFloat()), Size(canvas.width.toFloat(), canvas.height.toFloat()))
 
-    d.layout.slots.forEachIndexed { i, slot ->
+    arranged.slots.forEachIndexed { i, slot ->
         val tile = d.summary.tiles.getOrElse(i) { SummaryTile() }
         val b = Box(canvas.left + slot.x * canvas.width, canvas.top + slot.y * canvas.height, slot.w * canvas.width, slot.h * canvas.height)
         rotate(slot.rotation.toFloat(), Offset((b.left + b.width / 2).toFloat(), (b.top + b.height / 2).toFloat())) {

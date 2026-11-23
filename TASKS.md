@@ -129,7 +129,7 @@ must pass as well.
 - [x] **S2 New layouts: 2-up, 4-up, panorama split.**
   Check: `./gradlew :core:domain:jvmTest --tests '*LayoutsTest*'` (slots stay inside the canvas without
   overlapping, and the panorama's slices line up edge to edge across slides)
-- [ ] **S3 Justified rows and reflow by photo ratio.** A pure `justify(aspects, width, gap, targetHeight)`
+- [x] **S3 Justified rows and reflow by photo ratio.** A pure `justify(aspects, width, gap, targetHeight)`
   (SPEC §8.4). Adaptive layouts use each photo's ratio.
   Check: `./gradlew :core:domain:jvmTest --tests '*JustifyTest*'` (each row exactly fills $W$, a portrait stays
   portrait, and one very wide photo gets a row to itself)

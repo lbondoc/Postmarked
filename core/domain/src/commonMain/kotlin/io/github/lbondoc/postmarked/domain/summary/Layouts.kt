@@ -40,6 +40,8 @@ enum class Layout(
     val slots: List<Slot>,
     val textSlots: Set<Int> = emptySet(),
     val slides: Int = 1,
+    /** Slots follow each photo's own shape (SPEC §8.4); strict grids keep fixed tile shapes. */
+    val adaptive: Boolean = false,
 ) {
     Grid3x3("3 × 3", grid3x3.aspect, grid3x3.slots, textSlots = setOf(4)),
     Grid2x3("2 × 3", grid2x3.aspect, grid2x3.slots, textSlots = setOf(3)),
@@ -53,6 +55,7 @@ enum class Layout(
     Filmstrip(
         "Filmstrip", 9.0 / 16,
         (0 until 4).map { i -> Slot(0.14, 0.04 + i * 0.235, 0.72, 0.215, frame = Frame.Film) },
+        adaptive = true,
     ),
     Polaroids(
         "Polaroid collage", 4.0 / 5,
@@ -63,6 +66,7 @@ enum class Layout(
             Slot(0.04, 0.55, 0.44, 0.40, rotation = 8.0, frame = Frame.Polaroid),
             Slot(0.52, 0.56, 0.44, 0.40, rotation = -5.0, frame = Frame.Polaroid),
         ),
+        adaptive = true,
     ),
     Magazine(
         "Magazine", 4.0 / 5,
@@ -73,6 +77,7 @@ enum class Layout(
             Slot(0.5 + GAP / 2, 0.81 + GAP / 2, 0.5 - GAP / 2, 0.19 - GAP / 2),
         ),
         textSlots = setOf(1),
+        adaptive = true,
     ),
     // Two photos, one above the other.
     TwoUp("2-up", 4.0 / 5, listOf(Slot(0.0, 0.0, 1.0, 0.5 - GAP / 2), Slot(0.0, 0.5 + GAP / 2, 1.0, 0.5 - GAP / 2))),
@@ -84,4 +89,50 @@ enum class Layout(
     // One wide photo across 2 or 3 carousel slides, joining up as they are swiped.
     Panorama2("Panorama, 2 slides", 2 * SLIDE_ASPECT, listOf(Slot(0.0, 0.0, 1.0, 1.0)), slides = 2),
     Panorama3("Panorama, 3 slides", 3 * SLIDE_ASPECT, listOf(Slot(0.0, 0.0, 1.0, 1.0)), slides = 3),
+    // Rows that each fill the width, every photo at its own shape (shown here for six 4:3 photos).
+    JustifiedRows("Justified rows", justified(List(JUSTIFIED_PHOTOS) { null }).aspect, justified(List(JUSTIFIED_PHOTOS) { null }).slots, adaptive = true),
+}
+
+private const val JUSTIFIED_PHOTOS = 6
+private const val UNKNOWN_ASPECT = 4.0 / 3 // until a photo's real shape is known: most phone photos
+private const val ROW_HEIGHT = 0.36 // target row height, as a fraction of the width: two or three photos a row
+
+/** A layout placed for particular photos: the canvas's shape and where each slot goes. */
+data class Arrangement(val aspect: Double, val slots: List<Slot>)
+
+/**
+ * This layout placed for the photos in its tiles, [aspects] by slot (null for a text or colour tile, or a photo
+ * whose shape isn't known yet). Strict layouts stay as they are. Adaptive ones give each photo its own shape:
+ * justified rows reflow completely; the others fit the photo inside its slot, centred.
+ */
+fun Layout.arrange(aspects: List<Double?>): Arrangement = when {
+    this == Layout.JustifiedRows -> justified(List(slots.size) { aspects.getOrNull(it) })
+    adaptive -> Arrangement(aspect, slots.mapIndexed { i, s -> aspects.getOrNull(i)?.let { s.fitted(it, aspect) } ?: s })
+    else -> Arrangement(aspect, slots)
+}
+
+/** The slot shrunk to [photoAspect] and centred in it, on a canvas of shape [canvasAspect]. */
+private fun Slot.fitted(photoAspect: Double, canvasAspect: Double): Slot {
+    val realW = w * canvasAspect // in canvas heights
+    val (fw, fh) = if (photoAspect * h <= realW) photoAspect * h to h else realW to realW / photoAspect
+    val nw = fw / canvasAspect
+    return copy(x = x + (w - nw) / 2, y = y + (h - fh) / 2, w = nw, h = fh)
+}
+
+private fun justified(aspects: List<Double?>): Arrangement {
+    val ratios = aspects.map { it ?: UNKNOWN_ASPECT }
+    val rows = justify(ratios, 1.0, GAP, ROW_HEIGHT)
+    val total = rows.sumOf { it.height } + GAP * (rows.size - 1) // canvas height, in widths
+    val slots = mutableListOf<Slot>()
+    var y = 0.0
+    for (row in rows) {
+        var x = 0.0
+        for (i in row.start until row.end) {
+            val w = ratios[i] * row.height
+            slots += Slot(x, y / total, w, row.height / total)
+            x += w + GAP
+        }
+        y += row.height + GAP
+    }
+    return Arrangement(1 / total, slots)
 }
