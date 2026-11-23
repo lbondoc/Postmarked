@@ -95,7 +95,7 @@ must pass as well.
   reactions idempotent, last write wins for notes, and show "Waiting to send".
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*OutboxTest*'` (order is kept, a failed send stays
   queued, a duplicate reaction becomes one, a newer note beats an older one)
-- [ ] **O3 Offline imports.** Confirm that queued imports wait for the network and survive a reboot. Fix whatever
+- [x] **O3 Offline imports.** Confirm that queued imports wait for the network and survive a reboot. Fix whatever
   doesn't.
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: queue 3 photos in airplane mode, reboot, turn on
   Wi-Fi, and all 3 appear in the gallery

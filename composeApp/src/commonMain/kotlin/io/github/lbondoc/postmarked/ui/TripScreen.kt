@@ -114,6 +114,8 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         )
         trip = loaded.value
         offline = loaded.offline
+        // Saved now so that adding photos works later without a network.
+        if (!offline) runCatching { Trips.bounds(tripId) }
         // Songs are extras: offline the page simply shows none.
         songs = try { Songs.ofTrip(tripId) } catch (e: Exception) { if (isOffline(e)) emptyList() else throw e }
     }

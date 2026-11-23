@@ -123,11 +123,22 @@ object Trips {
         supabase.from("trips").delete { filter { eq("id", tripId) } }
     }
 
-    /** The trip's dates and area, which decide which camera-roll items belong to it. */
+    /**
+     * The trip's dates and area, which decide which camera-roll items belong to it. Saved for offline use, so
+     * photos can be picked and queued in airplane mode (they upload once there is a network).
+     */
     suspend fun bounds(tripId: String): TripBounds {
-        val row = supabase.from("trips").select(Columns.raw("start_date,end_date,trip_regions(geojson)")) {
-            filter { eq("id", tripId) }
-        }.decodeSingle<BoundsRow>()
+        val cache = TripCache.shared
+        val key = "bounds-$tripId"
+        val row = loadOrCached(
+            {
+                supabase.from("trips").select(Columns.raw("start_date,end_date,trip_regions(geojson)")) {
+                    filter { eq("id", tripId) }
+                }.decodeSingle<BoundsRow>()
+            },
+            { cache.put(key, BoundsRow.serializer(), it) },
+            { cache.get(key, BoundsRow.serializer()) },
+        ).value
         return TripBounds(row.startDate, row.endDate, TripArea(row.regions.map { it.geojson }))
     }
 }

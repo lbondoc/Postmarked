@@ -806,6 +806,45 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - A comment whose response was lost after the server saved it can be sent twice: comment ids are
     server-generated.
 
+## O3 Offline imports
+- Changes:
+  - `data/Trips.kt`: `Trips.bounds()` goes through `loadOrCached` and saves the trip's dates and region shapes
+    under `bounds-<trip>`. This is the fix the task asks for ("fix whatever doesn't"). `ImportViewModel.load()`
+    called `Trips.bounds()` on the server before it could sort or queue anything, so in airplane mode the
+    import screen stopped at "Can't reach the server", and the photos never reached the queue that would have
+    waited for the network.
+  - `ui/TripScreen.kt`: the trip page saves the bounds whenever it loads online, so they're already there
+    before the user goes offline.
+  - `data/TripCache.kt`: public `put` and `get` for typed copies other than the trip list and snapshots.
+  - `TripCacheTest.kt`: a new case, a keyed copy round-trips and an unknown key reads as null. The 4 existing
+    cases are untouched.
+- Approach: I confirmed the rest of the path by reading it rather than changing it.
+  - The queue is a JSON `AtomicFile` loaded in `Application.onCreate` (`UploadQueue.init`), before any worker
+    runs, so it survives a reboot.
+  - Uploads are WorkManager work with a network constraint (UNMETERED, or CONNECTED with "Use mobile data").
+    That's the "wait for the network" part.
+  - WorkManager reschedules after a reboot. The merged debug manifest contains `RECEIVE_BOOT_COMPLETED`,
+    `ACCESS_NETWORK_STATE`, `SystemJobService`, and `RescheduleReceiver` on `BOOT_COMPLETED`.
+  - The worker loads the saved sign-in (`awaitInitialization`) and retries while it can't refresh.
+  - The camera-roll scan itself is local.
+
+  I considered adding WorkManager's test library to simulate a reboot and rejected it: a new dependency only
+  for a check the task says to do on the phone.
+- Verification:
+  - Task check `./gradlew :androidApp:assembleDebug` → `BUILD SUCCESSFUL`.
+  - `TripCacheTest` → `tests="5" … failures="0"`.
+  - Merged manifest grep as above.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; iOS compile → `BUILD SUCCESSFUL`; web build + smoke →
+    passed.
+- Follow-ups: **needs manual check (the task's own):** open the trip once online, then:
+  1. Turn on airplane mode and queue 3 photos.
+  2. Reboot.
+  3. Turn on Wi-Fi.
+
+  All 3 should appear in the gallery. A trip never opened online on this phone still can't be imported into
+  offline, because its area is unknown.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

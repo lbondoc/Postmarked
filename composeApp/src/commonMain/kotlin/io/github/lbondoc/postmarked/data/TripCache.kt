@@ -53,6 +53,10 @@ class TripCache(private val store: TripCacheStore) {
     fun saveTrip(snapshot: TripSnapshot) = write(tripKey(snapshot.trip.id), TripSnapshot.serializer(), snapshot)
     fun trip(id: String): TripSnapshot? = read(tripKey(id), TripSnapshot.serializer())
 
+    /** Any other offline copy, e.g. a trip's bounds for importing in airplane mode. */
+    fun <T> put(key: String, serializer: KSerializer<T>, value: T) = write(key, serializer, value)
+    fun <T> get(key: String, serializer: KSerializer<T>): T? = read(key, serializer)
+
     private fun <T> write(key: String, serializer: KSerializer<T>, value: T) =
         runCatching { store.write(key, json.encodeToString(serializer, value)) }.let { } // a full disk only loses the cache
 

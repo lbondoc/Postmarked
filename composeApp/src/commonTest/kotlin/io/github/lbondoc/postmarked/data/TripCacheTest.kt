@@ -78,4 +78,13 @@ class TripCacheTest {
         cache.saveTrips(listOf(trip))
         assertFailsWith<IllegalStateException> { now { loadOrCached<List<Trip>>({ error("permission denied") }, cache::saveTrips, cache::trips) } }
     }
+
+    @Test
+    fun otherCopiesRoundTripByKey() {
+        val cache = TripCache(MemoryStore())
+        val area = kotlinx.serialization.json.Json.parseToJsonElement("""{"type": "Polygon", "coordinates": [[[-122, 36], [-121, 36], [-121, 37], [-122, 36]]]}""")
+        cache.put("bounds-t1", kotlinx.serialization.json.JsonElement.serializer(), area)
+        assertEquals(area, cache.get("bounds-t1", kotlinx.serialization.json.JsonElement.serializer()))
+        assertNull(cache.get("bounds-t2", kotlinx.serialization.json.JsonElement.serializer()))
+    }
 }
