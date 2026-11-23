@@ -252,5 +252,44 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Uploads are in memory: reloading the tab drops the queue. That's expected per SPEC ("Uploads run while the
     tab is open"), and the browser warns before closing.
 
+## P6 iOS compiles in CI
+- Changes:
+  - `composeApp/build.gradle.kts`: added `iosArm64()` and `iosSimulatorArm64()`, plus `ktor-client-darwin` in
+    `iosMain`. The task asks for these, and SPEC §1.1 names Darwin as the iOS engine that supabase-kt and Coil
+    need at runtime.
+  - `gradle/libs.versions.toml`: `ktor-client-darwin` at the existing `ktor` version (the matching per-platform
+    engine SPEC allows).
+  - `iosMain/.../ui/TripMap.ios.kt` (new): the `actual` the new targets require for `TripMap`. It uses the
+    tile-free `RouteDrawing` and is marked `// shortcut: stub, implement when a Mac is available`, as
+    SPEC §1.3 asks.
+  - `iosMain/.../MainViewController.kt` (new): `ComposeUIViewController { App(...) }` with stub camera roll,
+    exporter, video, share and QR, each marked with the same shortcut comment. SPEC §1.3 says iOS's
+    native-API pieces are stubs that say "Not available on iOS yet". Giving `App()` its iOS entry point means the
+    CI compile covers the whole app wiring, not just the library, and a future Xcode project only has to call it.
+    The camera roll denies access, so the import screen shows its existing "access off" state rather than
+    crashing.
+  - `.github/workflows/ci.yml`: a `workflow_dispatch` trigger, and an `ios` job on `macos-latest` that runs
+    exactly the task's command. Its `if:` limits it to pushes to `main` and manual runs, because SPEC says macOS
+    minutes are scarce on the free plan.
+- Approach:
+  - Stubs went in the `iosMain` source set of composeApp rather than in a separate `iosApp` module. There's no
+    Xcode project to host one this round (no Mac, out of scope), and the task asks only for composeApp to compile.
+  - I considered using maplibre-compose's iOS build for the map now and rejected it: nobody can run it this
+    round, so the stub is the honest choice, and it's flagged.
+- Verification:
+  - Locally (Linux can build iOS klibs, not run them): `./gradlew :core:domain:compileKotlinIosSimulatorArm64
+    :composeApp:compileKotlinIosSimulatorArm64 :composeApp:compileKotlinIosArm64` → `BUILD SUCCESSFUL`.
+  - The workflow YAML parses: triggers `push, pull_request, workflow_dispatch`, jobs
+    `database, functions, build, ios`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + `node web/smoke.mjs` → passed.
+  - For the record: GitHub Actions ran this branch's pushes for P2 (run 22) and P4 (run 23) with the real Kotlin
+    npm tooling, and both concluded `success`. So the `wasmJsNodeTest` and "Compile the web build" CI steps work
+    there.
+- Follow-ups: **needs manual check:** the `ios` job itself has not run. It needs a push to `main` or a manual run
+  from the Actions tab, and both are outside this session. `:core:domain:iosSimulatorArm64Test` can only run on
+  macOS. The first macOS run may also need Xcode's simulator runtime, which `macos-latest` normally includes.
+
 ## Found
-- (nothing yet)
+- `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
+  `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

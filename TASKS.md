@@ -38,7 +38,7 @@ must pass as well.
   rejection, the 50 MB video limit, in-tab progress. `Exporter` on web downloads the files.
   Check: `./gradlew :core:domain:jvmTest --tests '*ExifReaderTest*'` (fixture JPEGs with and without GPS, and a
   truncated file) `&& node web/smoke.mjs`
-- [ ] **P6 iOS compiles in CI.** Add the iOS targets to `composeApp` with the Darwin engine and stubbed `actual`s
+- [x] **P6 iOS compiles in CI.** Add the iOS targets to `composeApp` with the Darwin engine and stubbed `actual`s
   (`// shortcut:` comments). Add an `ios` job on `macos-latest`, run on pushes to `main` and by
   `workflow_dispatch`.
   Check: CI job `ios` runs `./gradlew :core:domain:iosSimulatorArm64Test :composeApp:compileKotlinIosSimulatorArm64`
