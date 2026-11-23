@@ -97,6 +97,9 @@ fun Viewer(
     tripStart: LocalDate?,
     /** Each item's stop ("Stop 3 · Big Sur"), by media id. */
     stopTitles: Map<String, String>,
+    /** The trip's cover, and how to change it; null for members who can't (viewers). */
+    coverId: String?,
+    onSetCover: ((TripMedia) -> Unit)?,
     onDeleted: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -205,6 +208,10 @@ fun Viewer(
                 Row {
                     TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size})", color = Color.White) }
                     TextButton(onClick = { showInfo = !showInfo }) { Text(if (showInfo) "Hide info" else "ⓘ Info", color = Color.White) }
+                    if (onSetCover != null) {
+                        if (item.id == coverId) Text("Trip cover", color = Color.White, modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp))
+                        else TextButton(onClick = { onSetCover(item) }) { Text("Set as trip cover", color = Color.White) }
+                    }
                 }
             }
         }

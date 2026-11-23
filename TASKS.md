@@ -76,7 +76,7 @@ must pass as well.
   where delete only covers your own items.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*SelectionTest*'` (drag range, toggle, and the
   "N not yours, skipped" count)
-- [ ] **F8 Trip cover.** Migration `trips.cover_media_id` (same trip, only editors can set it, `on delete set
+- [x] **F8 Trip cover.** Migration `trips.cover_media_id` (same trip, only editors can set it, `on delete set
   null`). Set it from the viewer and show it on the trip list card.
   Check: `./supabase/tests/run.sh` (new `cover_test.sql`: an editor can set it, a viewer can't, media from another
   trip is refused, deleting the media clears it)

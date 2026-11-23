@@ -1,5 +1,11 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.Media
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,8 +54,15 @@ class TripListViewModel : ScreenModel() {
     /** null until the first load finishes. */
     var trips by mutableStateOf<List<Trip>?>(null)
         private set
+    /** Cover thumbnails by trip id, for trips that have one. */
+    var covers by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
 
-    fun refresh() = run { trips = Trips.mine() }
+    fun refresh() = run {
+        val mine = Trips.mine()
+        trips = mine
+        covers = Media.coverUrls(mine)
+    }
 
     fun join(linkOrCode: String, onJoined: (String) -> Unit) = run { onJoined(Trips.join(tokenFromInvite(linkOrCode))) }
 
@@ -99,6 +112,14 @@ fun TripListScreen(
             }
             items(vm.trips.orEmpty(), key = { it.id }) { trip ->
                 ListItem(
+                    leadingContent = vm.covers[trip.id]?.let { url ->
+                        {
+                            AsyncImage(
+                                model = url, contentDescription = "Trip cover", contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
+                            )
+                        }
+                    },
                     headlineContent = { Text(trip.name) },
                     supportingContent = { Text(trip.dates + "\n" + trip.regions.joinToString(" · ") { it.label.substringBefore(',') }) },
                     modifier = Modifier.fillMaxWidth().clickable { onOpen(trip.id) },

@@ -628,6 +628,39 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - The import screen's drag-select still works exactly as before.
   - Edge scrolling, and the selection bar's actions.
 
+## F8 Trip cover
+- Changes:
+  - `supabase/migrations/20261129000000_trip_cover.sql` (new): `trips.cover_media_id` with a composite foreign
+    key `(cover_media_id, id) → media (id, trip_id)` and `on delete set null (cover_media_id)`, plus
+    `grant update (cover_media_id)`. This covers all three SPEC §3.2 rules in the database:
+    - "Same trip": the key includes the trip id, which needs the new `unique (id, trip_id)` on media.
+    - "Cleared when that media is deleted": the column-list form nulls only the cover, not the trip's id. It
+      needs Postgres 15+; CI runs 16 and Supabase 15+.
+    - "Only editors": the existing "owner and editors edit the trip" RLS policy, which the grant extends to
+      the new column.
+  - `supabase/tests/cover_test.sql` (new), the task's check:
+    - An editor sets the cover and a viewer sees it.
+    - A viewer's update touches 0 rows and the cover is unchanged.
+    - Media from another trip, and a made-up id, are refused even for the owner of both trips.
+    - Deleting the photo clears the cover, and only the cover.
+  - `data/Trips.kt`: `Trip.coverMediaId`, selected with every trip, and `Trips.setCover`.
+  - `data/Media.kt`: `coverUrls(trips)`, every cover's thumbnail link for the trip list in one signed-URL request.
+  - `ui/Viewer.kt` + `ui/TripScreen.kt`: "Set as trip cover" for owners and editors (the viewer receives a null
+    callback for viewers), and "Trip cover" on the current one. After setting it, the trip reloads.
+  - `ui/TripListScreen.kt`: the card shows the cover as a 56 dp rounded thumbnail.
+- Approach: enforced in the database, not the app. I considered a trigger and rejected it: a composite foreign
+  key is declarative and can't be bypassed through PostgREST. RLS already says who may update a trip.
+- Verification:
+  - Task check `./supabase/tests/run.sh` → `== tests/cover_test.sql` … `database tests passed`.
+  - Mutation check: with the composite foreign key removed, the run fails with `ERROR: media from another trip
+    is refused`. Restored, it passes.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; iOS compile → `BUILD SUCCESSFUL`; web build + smoke → passed.
+- Follow-ups:
+  - **Needs manual step (owner):** run the new migration in the Supabase SQL editor, as README's setup says
+    for each file in `supabase/migrations`.
+  - **Needs manual check:** "Set as trip cover" on a phone, and the trip list card.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

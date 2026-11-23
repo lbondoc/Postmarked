@@ -115,6 +115,12 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         }
     }
 
+    /** Owner and editors only: the photo shown for this trip on the trip list. */
+    fun setCover(mediaId: String) = run {
+        Trips.setCover(tripId, mediaId)
+        trip = Trips.byId(tripId)
+    }
+
     /** The items' own files to the share sheet (or Web Share). */
     fun share(saver: PhotoSaver, items: List<TripMedia>) = run { saver.share(items.map { Media.savedFile(tripId, it) }) }
 
@@ -324,6 +330,8 @@ fun TripScreen(
             photoSaver = photoSaver,
             tripStart = trip?.startDate,
             stopTitles = stopTitles,
+            coverId = trip?.coverMediaId,
+            onSetCover = if (trip?.myRole?.canEdit == true) { item -> vm.setCover(item.id) } else null,
             onDeleted = {
                 viewing = null
                 vm.loadMedia()

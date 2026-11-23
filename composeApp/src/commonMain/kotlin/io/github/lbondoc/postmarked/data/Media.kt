@@ -244,6 +244,14 @@ object Media {
         return ids.mapNotNull { id -> byPath[path(tripId, id, file)]?.let { id to it } }.toMap()
     }
 
+    /** Each trip's cover thumbnail, by trip id, in one request for the whole trip list. */
+    suspend fun coverUrls(trips: List<Trip>): Map<String, String> {
+        val covers = trips.mapNotNull { trip -> trip.coverMediaId?.let { trip.id to path(trip.id, it, MediaKind.THUMB) } }
+        if (covers.isEmpty()) return emptyMap()
+        val byPath = bucket.createSignedUrls(1.hours, covers.map { it.second }).associate { it.path to it.signedURL }
+        return covers.mapNotNull { (trip, p) -> byPath[p]?.let { trip to it } }.toMap()
+    }
+
     /** A link to the full-size picture, or to the video itself. */
     suspend fun viewUrl(tripId: String, item: TripMedia): String =
         signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
