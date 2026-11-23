@@ -39,7 +39,17 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import coil3.compose.AsyncImage
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.isUnspecified
+import androidx.compose.ui.graphics.drawscope.translate
+import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import io.github.lbondoc.postmarked.data.Crop
+import io.github.lbondoc.postmarked.domain.summary.Box as DomainBox
+import io.github.lbondoc.postmarked.domain.summary.cropRegion
 import io.github.lbondoc.postmarked.data.SummaryTile
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.domain.color.hexToRgb
@@ -167,13 +177,11 @@ private fun TileContent(
     density: Float,
 ) {
     when {
-        tile.media != null -> AsyncImage(
-            model = pictures[tile.media],
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        tile.media != null -> CroppedPhoto(
+            pictures[tile.media], tile.crop,
             // The look is applied while drawing; the photo itself is never changed.
-            colorFilter = gradeFor(tile)?.let { ColorFilter.colorMatrix(ColorMatrix(it)) },
-            modifier = Modifier.fillMaxSize().background(Color(0xFFE6E0D4)),
+            gradeFor(tile)?.let { ColorFilter.colorMatrix(ColorMatrix(it)) },
+            Modifier.fillMaxSize().background(Color(0xFFE6E0D4)),
         )
         tile.bg != null -> {
             val bg = hexToRgb(tile.bg)
@@ -197,3 +205,55 @@ private fun TileContent(
         }
     }
 }
+
+/**
+ * A photo filling its box, showing the part [crop] chose (the middle when null), drawn through
+ * [colorFilter]. With [onCrop], dragging moves the photo and pinching zooms, reporting each change.
+ */
+@Composable
+fun CroppedPhoto(url: String?, crop: Crop?, colorFilter: ColorFilter?, modifier: Modifier = Modifier, onCrop: ((Crop) -> Unit)? = null) {
+    // Drawn by hand rather than by AsyncImage, so Coil can't size it from the layout: cap it here.
+    val context = LocalPlatformContext.current
+    val painter = rememberAsyncImagePainter(remember(url) { ImageRequest.Builder(context).data(url).size(PHOTO_PIXELS).build() })
+    val current by rememberUpdatedState(crop ?: Crop())
+    val report by rememberUpdatedState(onCrop)
+    fun region(frame: Size, c: Crop): DomainBox? {
+        val src = painter.intrinsicSize
+        if (src.isUnspecified || src.width <= 0f || frame.width <= 0f) return null
+        return cropRegion(src.width.toDouble(), src.height.toDouble(), (frame.width / frame.height).toDouble(), c.x, c.y, c.zoom)
+    }
+    Canvas(
+        modifier.clipToBounds().then(
+            if (onCrop == null) Modifier else Modifier.pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoomChange, _ ->
+                    val frame = Size(size.width.toFloat(), size.height.toFloat())
+                    val before = region(frame, current) ?: return@detectTransformGestures
+                    val src = painter.intrinsicSize
+                    // Screen pixels per photo pixel; dragging right shows more of the left.
+                    val scale = frame.width / before.width
+                    val moved = Crop(
+                        x = current.x - pan.x / scale / src.width,
+                        y = current.y - pan.y / scale / src.height,
+                        zoom = (current.zoom * zoomChange).coerceIn(1.0, MAX_ZOOM),
+                    )
+                    // Store where the view really ended up, so panning past an edge doesn't build up slack.
+                    val after = region(frame, moved) ?: return@detectTransformGestures
+                    report?.invoke(moved.copy(x = (after.left + after.width / 2) / src.width, y = (after.top + after.height / 2) / src.height))
+                }
+            },
+        ),
+    ) {
+        val r = region(size, current) ?: return@Canvas
+        val src = painter.intrinsicSize
+        val scale = (size.width / r.width).toFloat()
+        translate(-(r.left * scale).toFloat(), -(r.top * scale).toFloat()) {
+            with(painter) { draw(Size(src.width * scale, src.height * scale), colorFilter = colorFilter) }
+        }
+    }
+}
+
+/** The long-ish edge photos are decoded at for the editor: sharp on a phone, without loading full originals. */
+private const val PHOTO_PIXELS = 1200
+
+/** How far in a crop can zoom: past this, photos from a phone get visibly soft. */
+const val MAX_ZOOM = 4.0

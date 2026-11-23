@@ -28,4 +28,14 @@ class ExportGeometryTest {
     fun theBottomRightTileIsPostedFirst() {
         assertEquals(listOf(8, 7, 6, 5, 4, 3, 2, 1, 0), postingOrder(9))
     }
+
+    @Test
+    fun cropZoomsAroundTheChosenPointAndStopsAtTheEdges() {
+        // A 4000 x 3000 photo in a square tile: the uncropped view is the middle 3000 x 3000.
+        assertEquals(Box(500.0, 0.0, 3000.0, 3000.0), cropRegion(4000.0, 3000.0, 1.0, 0.5, 0.5, 1.0))
+        // Twice as close, centred on the sun at (75%, 25%).
+        assertEquals(Box(2250.0, 0.0, 1500.0, 1500.0), cropRegion(4000.0, 3000.0, 1.0, 0.75, 0.25, 2.0))
+        // Panning past the left edge stops at it; zooming out past "fill" is not allowed.
+        assertEquals(Box(0.0, 0.0, 3000.0, 3000.0), cropRegion(4000.0, 3000.0, 1.0, 0.0, 0.5, 0.5))
+    }
 }

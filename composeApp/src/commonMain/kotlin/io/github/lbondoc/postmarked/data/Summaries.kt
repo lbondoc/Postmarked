@@ -2,13 +2,17 @@ package io.github.lbondoc.postmarked.data
 
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.lbondoc.postmarked.domain.color.Adjustment
+import io.github.lbondoc.postmarked.domain.color.Filter
+import io.github.lbondoc.postmarked.domain.color.Look
 import kotlin.time.Clock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
  * One slot of a summary: a photo ([media]) or a text tile ([text] on [bg]). [noGrade] leaves
- * this photo out of colour harmonizing. All empty means an empty slot.
+ * this photo out of colour harmonizing. All empty means an empty slot. A photo can have its own
+ * [crop] and [look]; the look adds to the summary's unless [ownLook] says to ignore that.
  */
 @Serializable
 data class SummaryTile(
@@ -16,7 +20,29 @@ data class SummaryTile(
     val text: String? = null,
     val bg: String? = null,
     val noGrade: Boolean = false,
+    val crop: Crop? = null,
+    val look: LookData? = null,
+    val ownLook: Boolean = false,
 )
+
+/** Which part of a photo a tile shows: centred on ([x], [y]), fractions of the photo, [zoom] times closer. */
+@Serializable
+data class Crop(val x: Double = 0.5, val y: Double = 0.5, val zoom: Double = 1.0)
+
+/**
+ * A filter and adjustments as saved: names rather than the app's own types, so a name a newer
+ * version adds is simply ignored by an older one instead of failing to load.
+ */
+@Serializable
+data class LookData(val filter: String = Filter.Original.name, val strength: Double = 1.0, val adjust: Map<String, Double> = emptyMap()) {
+    fun toLook() = Look(
+        filter = Filter.entries.firstOrNull { it.name == filter } ?: Filter.Original,
+        strength = strength,
+        adjust = adjust.mapNotNull { (name, v) -> Adjustment.entries.firstOrNull { it.name == name }?.let { it to v } }.toMap(),
+    )
+}
+
+fun Look.toData() = LookData(filter.name, strength, adjust.filterValues { it != 0.0 }.mapKeys { it.key.name })
 
 @Serializable
 data class Summary(
@@ -29,6 +55,8 @@ data class Summary(
     val tiles: List<SummaryTile>,
     val harmonize: Double = 0.0,
     val colours: List<String> = emptyList(),
+    /** The filter and adjustments for every photo in the summary. */
+    val look: LookData? = null,
 )
 
 @Serializable
@@ -40,6 +68,7 @@ private class SummaryWrite(
     val tiles: List<SummaryTile>,
     val harmonize: Double,
     val colours: List<String>,
+    val look: LookData?,
 )
 
 @Serializable
@@ -50,6 +79,7 @@ private class SummaryUpdate(
     val tiles: List<SummaryTile>,
     val harmonize: Double,
     val colours: List<String>,
+    val look: LookData?,
     @SerialName("updated_at") val updatedAt: String,
 )
 
@@ -64,11 +94,11 @@ object Summaries {
     suspend fun save(s: Summary): Summary =
         if (s.id == null) {
             supabase.from("summaries")
-                .insert(SummaryWrite(s.tripId, s.name.trim(), s.layout, s.mode, s.tiles, s.harmonize, s.colours)) { select() }
+                .insert(SummaryWrite(s.tripId, s.name.trim(), s.layout, s.mode, s.tiles, s.harmonize, s.colours, s.look)) { select() }
                 .decodeSingle()
         } else {
             supabase.from("summaries")
-                .update(SummaryUpdate(s.name.trim(), s.layout, s.mode, s.tiles, s.harmonize, s.colours, Clock.System.now().toString())) {
+                .update(SummaryUpdate(s.name.trim(), s.layout, s.mode, s.tiles, s.harmonize, s.colours, s.look, Clock.System.now().toString())) {
                     select()
                     filter { eq("id", s.id) }
                 }.decodeSingle()

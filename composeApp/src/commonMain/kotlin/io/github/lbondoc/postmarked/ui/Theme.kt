@@ -129,6 +129,12 @@ fun PostmarkedTheme(content: @Composable () -> Unit) {
     )
 }
 
+/** The night colours whatever the phone's setting: for the photo editor, where a dark surround makes colours easier to judge. */
+@Composable
+fun DarkroomTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = Night, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes, content = content)
+}
+
 /**
  * The Postmarked logo: a round postmark with the name across it, and wavy cancellation lines
  * trailing off to the right, as a post office stamp leaves on an envelope.

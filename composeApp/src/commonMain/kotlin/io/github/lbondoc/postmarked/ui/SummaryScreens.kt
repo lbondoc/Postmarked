@@ -29,6 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import io.github.lbondoc.postmarked.domain.color.share
+import io.github.lbondoc.postmarked.domain.color.then
+import io.github.lbondoc.postmarked.domain.color.Look
+import io.github.lbondoc.postmarked.domain.color.Adjustment
+import io.github.lbondoc.postmarked.data.toData
 import kotlinx.datetime.format
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -116,12 +120,21 @@ class SummaryMaterial(
     val palette: List<Swatch> = tripPalette(media)
     val candidates = covers(media.filter { !it.palette.isNullOrEmpty() })
 
+    /**
+     * Each photo's colour matrix, or null to draw it untouched: Match colours first, then the
+     * summary's filter and adjustments (unless the tile opted out), then the tile's own.
+     */
     fun gradeFor(summary: Summary): (SummaryTile) -> FloatArray? {
         val target = summary.colours.map { Swatch(Oklab.fromRgb(hexToRgb(it)), 1.0 / summary.colours.size) }
+        val shared = summary.look?.toLook()?.takeUnless { it.isPlain }?.grade()
         return { tile ->
             val photo = tile.media?.let { byId[it] }
-            if (summary.harmonize <= 0 || tile.noGrade || photo == null || target.isEmpty()) null
-            else harmonize(photo.swatches, target, summary.harmonize).toColorMatrix()
+            if (photo == null) null
+            else listOfNotNull(
+                harmonize(photo.swatches, target, summary.harmonize).takeIf { summary.harmonize > 0 && !tile.noGrade && target.isNotEmpty() },
+                shared.takeUnless { tile.ownLook },
+                tile.look?.toLook()?.takeUnless { it.isPlain }?.grade(),
+            ).reduceOrNull { a, b -> a then b }?.toColorMatrix()
         }
     }
 
@@ -264,6 +277,7 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
     }
 
     fun setHarmonize(value: Double) = change { it.copy(harmonize = value) }
+    fun setLook(look: Look) = change { it.copy(look = look.takeUnless { l -> l.isPlain }?.toData()) }
     fun rename(name: String) = change { it.copy(name = name.take(80)) }
     fun swap(a: Int, b: Int) = change { it.copy(tiles = swapTiles(it.tiles, a, b), mode = SummaryMode.Manual.name) }
     fun setTile(index: Int, tile: SummaryTile) = change { s ->
@@ -283,7 +297,7 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
 }
 
 /** The editor's bottom tabs; only the chosen one's controls are on screen. */
-private enum class EditorTab(val label: String) { Style("Style"), Colour("Colour"), Layout("Layout"), Adjust("Adjust") }
+private enum class EditorTab(val label: String) { Style("Style"), Colour("Colour"), Layout("Layout"), Filter("Filter"), Adjust("Adjust") }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -297,6 +311,7 @@ fun SummaryEditorScreen(
     LaunchedEffect(Unit) { if (vm.summary == null) vm.load() }
     var tab by remember { mutableStateOf(EditorTab.Style) }
     var editing by remember { mutableStateOf<Int?>(null) }
+    var photoEditing by remember { mutableStateOf<Pair<Int, PhotoTab>?>(null) }
     var picking by remember { mutableStateOf<((List<String>) -> Unit)?>(null) }
     var pickMany by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -358,7 +373,24 @@ fun SummaryEditorScreen(
                     EditorTab.Style -> StylePanel(vm.mode, summary, material) { mode -> if (mode == SummaryMode.Manual) chooseMine() else vm.setMode(mode) }
                     EditorTab.Colour -> ColourPanel(vm.mode, summary, material, vm::setFocus)
                     EditorTab.Layout -> LayoutPanel(vm.layout, vm::setLayout)
-                    EditorTab.Adjust -> AdjustPanel(summary.harmonize, vm::setHarmonize)
+                    EditorTab.Filter -> {
+                        val look = summary.look?.toLook() ?: Look()
+                        // The previews show the summary's first photo, drawn as the summary would draw it.
+                        val sample = summary.tiles.firstOrNull { it.media != null }
+                        FilterStrip("Filter · all photos", look, sample?.media?.let { material.thumbnails[it] }, { f ->
+                            sample?.let { material.gradeFor(summary.copy(look = look.copy(filter = f).toData()))(it) }
+                        }, vm::setLook)
+                    }
+                    EditorTab.Adjust -> {
+                        val look = summary.look?.toLook() ?: Look()
+                        val tools = listOf(Tool("Match", 0.0, summary.harmonize, vm::setHarmonize)) +
+                            lookTools(look, Adjustment.entries - Adjustment.Tint, vm::setLook)
+                        ToolPicker("Adjust · all photos", tools) { vm.setHarmonize(0.0); vm.setLook(look.copy(adjust = emptyMap())) }
+                        Text(
+                            "Match gives every photo the same colours, from this summary's palette. Your photos themselves are never changed.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -380,8 +412,23 @@ fun SummaryEditorScreen(
             onChange = { vm.setTile(index, it) },
             onMove = { to -> vm.swap(index, to); editing = to },
             onPickPhoto = { pickMany = false; picking = { ids -> ids.firstOrNull()?.let { vm.setTile(index, SummaryTile(media = it)) } } },
+            onEditPhoto = { tab -> editing = null; photoEditing = index to tab },
             onClose = { editing = null },
         )
+    }
+    photoEditing?.let { (i, tab) ->
+        val tile = summary?.tiles?.getOrNull(i)
+        if (material != null && summary != null && tile?.media != null) {
+            val slot = vm.layout.slots[i]
+            EditPhotoScreen(
+                tile, material.pictures[tile.media], material.thumbnails[tile.media],
+                aspect = (slot.w / slot.h * vm.layout.aspect).toFloat(),
+                startTab = tab,
+                gradeOf = material.gradeFor(summary),
+                onDone = { vm.setTile(i, it); photoEditing = null },
+                onCancel = { photoEditing = null },
+            )
+        }
     }
     picking?.let { onPicked ->
         if (material != null) PhotoPicker(material, many = pickMany, onDone = { ids -> picking = null; if (ids.isNotEmpty()) onPicked(ids) })
@@ -535,22 +582,6 @@ private fun LayoutPreview(layout: Layout, modifier: Modifier) {
     }
 }
 
-@Composable
-private fun AdjustPanel(harmonize: Double, onChange: (Double) -> Unit) {
-    SectionLabel("Adjust · all tiles")
-    Text("Match colours ${(harmonize * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-    Slider(
-        value = harmonize.toFloat(), onValueChange = { onChange(it.toDouble()) },
-        colors = SliderDefaults.colors(
-            thumbColor = MaterialTheme.colorScheme.onSurface, activeTrackColor = MaterialTheme.colorScheme.onSurface,
-        ),
-    )
-    Text(
-        "Gives every photo the same look, from this summary's colours. Your photos themselves aren't changed.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
 // ---------- Tapping a tile ----------
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -567,6 +598,7 @@ private fun TileSheet(
     onChange: (SummaryTile) -> Unit,
     onMove: (Int) -> Unit,
     onPickPhoto: () -> Unit,
+    onEditPhoto: (PhotoTab) -> Unit,
     onClose: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -591,6 +623,8 @@ private fun TileSheet(
                 }
             }
             if (tile.media != null) {
+                SheetRow("Edit photo", "Filter and adjust just this one") { onEditPhoto(PhotoTab.Filter) }
+                SheetRow("Crop", "Choose what shows in the tile") { onEditPhoto(PhotoTab.Crop) }
                 SheetRow("Replace photo", "Pick another from the trip", onPickPhoto)
                 SheetRow("Make it a text tile", "Trip name, miles, dates or your words") {
                     onChange(SummaryTile(text = quickTexts.firstOrNull(), bg = colours.first()))

@@ -65,7 +65,8 @@ import io.github.lbondoc.postmarked.domain.summary.Frame
 import io.github.lbondoc.postmarked.domain.summary.Layout
 import io.github.lbondoc.postmarked.domain.summary.SongCredit
 import io.github.lbondoc.postmarked.domain.summary.caption
-import io.github.lbondoc.postmarked.domain.summary.cropToFill
+import io.github.lbondoc.postmarked.data.Crop
+import io.github.lbondoc.postmarked.domain.summary.cropRegion
 import io.github.lbondoc.postmarked.domain.summary.fit
 import io.github.lbondoc.postmarked.domain.summary.postingOrder
 import kotlin.math.roundToInt
@@ -244,7 +245,8 @@ private fun DrawScope.tileContent(d: Drawing, tile: SummaryTile, b: Box, textSca
     val picture = tile.media?.let { d.pictures[it] }
     when {
         picture != null -> {
-            val crop = cropToFill(picture.width.toDouble(), picture.height.toDouble(), b.width / b.height)
+            val chosen = tile.crop ?: Crop()
+            val crop = cropRegion(picture.width.toDouble(), picture.height.toDouble(), b.width / b.height, chosen.x, chosen.y, chosen.zoom)
             drawImage(
                 picture,
                 srcOffset = IntOffset(crop.left.roundToInt(), crop.top.roundToInt()),

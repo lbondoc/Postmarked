@@ -46,6 +46,11 @@ begin
   assert not test.fails(format(make, trip, 'Yellow', 'Grid3x3', 'Monochrome', '[{"media": "' || photo || '"}, {"text": "Big Sur", "bg": "#F2C230"}]'));
   mine := (select id from public.summaries where name = 'Yellow');
   assert (select created_by from public.summaries where id = mine) = editor;
+  -- A whole-summary look: an object, kept small.
+  assert test.rows(format('update public.summaries set look = %L where id = %L', '{"filter": "Golden", "strength": 0.8, "adjust": {"Warmth": 0.15}}', mine)) = 1;
+  assert (select look ->> 'filter' from public.summaries where id = mine) = 'Golden';
+  assert test.fails(format('update public.summaries set look = %L where id = %L', '["Golden"]', mine)), 'a look is an object';
+  assert test.fails(format('update public.summaries set look = %L where id = %L', jsonb_build_object('filter', repeat('x', 2100)), mine)), 'looks are capped';
   assert test.fails(format(make, trip, '  ', 'Grid3x3', 'Manual', '[]')), 'needs a name';
   assert test.fails(format(make, trip, 'Big', 'Grid3x3', 'Manual', jsonb_build_array(repeat('x', 21000)))), 'tiles are capped';
   assert test.fails(format('insert into public.summaries (trip_id, name, layout, mode, tiles, harmonize) values (%L, %L, %L, %L, %L, 2)',
