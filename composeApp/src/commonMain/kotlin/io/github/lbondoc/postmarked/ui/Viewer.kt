@@ -63,7 +63,7 @@ import kotlinx.datetime.format.char
 /** Plays a video from a link. Only the platform can do it, so the Android app hands one in. */
 typealias VideoPlayer = @Composable (url: String, modifier: Modifier) -> Unit
 
-private val MOMENT = LocalDateTime.Format {
+internal val MOMENT = LocalDateTime.Format {
     date(DAY); char(','); char(' '); amPmHour(Padding.NONE); char(':'); minute(); char(' '); amPmMarker("AM", "PM")
 }
 

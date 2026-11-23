@@ -71,9 +71,16 @@ class GalleryTest {
     }
 
     @Test
-    fun peopleAreSortedByName() {
-        val sections = gallerySections(items, items, GalleryView.People, LocalDate(2026, 10, 3))
-        assertEquals(listOf("Maya · 3", "Sam · 2"), sections.map { it.title })
+    fun eachChoiceCountsWithTheOtherGroupsButNotItsOwn() {
+        val onlyMayaVideos = GalleryFilter(people = setOf("Maya"), kinds = setOf(MediaKind.Video))
+        // Counting people ignores the people already chosen, but keeps "videos only".
+        assertEquals(mapOf("Maya" to 1, "Sam" to 0), countEach(items, onlyMayaVideos, places, listOf("Maya", "Sam")) { copy(people = setOf(it)) })
+        // Counting types keeps "Maya only".
+        assertEquals(
+            mapOf(MediaKind.Photo to 2, MediaKind.Video to 1),
+            countEach(items, onlyMayaVideos, places, listOf(MediaKind.Photo, MediaKind.Video)) { copy(kinds = setOf(it)) },
+        )
+        assertEquals(2, onlyMayaVideos.count)
     }
 
     @Test

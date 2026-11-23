@@ -17,7 +17,8 @@ import kotlinx.datetime.format
 /** Photos up to this far outside a named place still count as taken there (GPS wobble, the car park). */
 private const val PLACE_MARGIN_METERS = 2_000.0
 
-enum class GalleryView(val label: String) { All("All"), Days("Days"), Stops("Stops"), People("People") }
+/** How the gallery is grouped. Who took a photo is a filter ("Taken by"), not a grouping. */
+enum class GalleryView(val label: String) { All("All"), Days("Days"), Stops("Stops") }
 
 /** Empty sets mean "any". Different kinds of filter combine with AND, choices within one with OR. */
 data class GalleryFilter(
@@ -28,7 +29,9 @@ data class GalleryFilter(
     /** "#RRGGBB" colours; a photo matches when enough of it is in one of their families. */
     val colours: Set<String> = emptySet(),
 ) {
-    val isEmpty get() = kinds.isEmpty() && people.isEmpty() && days.isEmpty() && places.isEmpty() && colours.isEmpty()
+    /** How many choices are on, across every group. */
+    val count get() = kinds.size + people.size + days.size + places.size + colours.size
+    val isEmpty get() = count == 0
 }
 
 /** One grid square: the best of a group of near-identical shots, with the rest behind it. */
@@ -51,6 +54,16 @@ fun filterMedia(items: List<TripMedia>, filter: GalleryFilter, places: Map<Strin
     }
 
 /**
+ * How many items each of [options] would show if it were the only choice in its group, with the
+ * other groups left as [filter] has them. [only] puts one option into its group, e.g.
+ * `{ copy(days = setOf(it)) }`. Shown beside each choice so nobody filters down to nothing by surprise.
+ */
+fun <T> countEach(
+    items: List<TripMedia>, filter: GalleryFilter, places: Map<String, TripArea>, options: List<T>,
+    only: GalleryFilter.(T) -> GalleryFilter,
+): Map<T, Int> = options.associateWith { filterMedia(items, filter.only(it), places).size }
+
+/**
  * Splits [items] into the sections of [view], with near-identical photos folded into one tile.
  * [allItems] is the whole trip: stops are worked out from everything, so filtering never renumbers them.
  */
@@ -68,9 +81,6 @@ fun gallerySections(items: List<TripMedia>, allItems: List<TripMedia>, view: Gal
                 Section(if (stop == null) "No location · ${stopItems.size}" else "Stop ${stop + 1} · ${stopItems.size}", tiles(stopItems))
             }
         }
-        GalleryView.People -> items.groupBy { it.contributor }.values
-            .sortedBy { it.first().profile?.displayName?.lowercase() }
-            .map { personItems -> Section("${personItems.first().profile?.displayName ?: "Someone"} · ${personItems.size}", tiles(personItems)) }
     }
 
 /** One photo per moment: the sharpest of each burst, plus videos. What summaries choose from. */

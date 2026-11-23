@@ -1,6 +1,35 @@
 package io.github.lbondoc.postmarked.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import io.github.lbondoc.postmarked.domain.color.share
+import kotlinx.datetime.format
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -26,7 +55,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -254,6 +282,9 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
     }
 }
 
+/** The editor's bottom tabs; only the chosen one's controls are on screen. */
+private enum class EditorTab(val label: String) { Style("Style"), Colour("Colour"), Layout("Layout"), Adjust("Adjust") }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SummaryEditorScreen(
@@ -264,9 +295,11 @@ fun SummaryEditorScreen(
     vm: SummaryEditorViewModel = viewModel(key = "summary-$summaryId") { SummaryEditorViewModel(tripId, summaryId) },
 ) {
     LaunchedEffect(Unit) { if (vm.summary == null) vm.load() }
+    var tab by remember { mutableStateOf(EditorTab.Style) }
     var editing by remember { mutableStateOf<Int?>(null) }
     var picking by remember { mutableStateOf<((List<String>) -> Unit)?>(null) }
     var pickMany by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     val material = vm.material
@@ -274,23 +307,29 @@ fun SummaryEditorScreen(
     val role = material?.trip?.myRole
     // Owners and editors make summaries; the maker or the trip owner can change one.
     val canEdit = role?.canEdit == true && (summary?.id == null || summary.createdBy == myUserId || role == TripRole.Owner)
+    val chooseMine = { pickMany = true; picking = vm::pick }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(summary?.name ?: "Summary") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                actions = {
-                    // Anyone on the trip can export; only those who may change it can save.
-                    if (summary != null && material != null) TextButton(onClick = { exporting = true }) { Text("Export") }
-                    if (canEdit) TextButton(onClick = { vm.save(onBack) }, enabled = !vm.busy && summary?.name?.isNotBlank() == true) { Text("Save") }
-                },
-            )
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text(if (canEdit) "Cancel" else "Back") }
+                Text(
+                    summary?.name ?: "Summary",
+                    Modifier.weight(1f).then(if (canEdit && summary != null) Modifier.clickable(onClickLabel = "Rename") { renaming = true } else Modifier),
+                    fontFamily = handFont(), fontWeight = FontWeight.SemiBold, fontSize = 26.sp, textAlign = TextAlign.Center, maxLines = 1,
+                )
+                // Anyone on the trip can export; only those who may change it can save.
+                if (summary != null && material != null) TextButton(onClick = { exporting = true }) { Text("Export") }
+                if (canEdit) InkButton("Done", onClick = { vm.save(onBack) }, enabled = !vm.busy && summary?.name?.isNotBlank() == true)
+            }
+        },
+        bottomBar = {
+            if (canEdit && summary != null) BottomTabs(EditorTab.entries.map { it to it.label }, tab, { tab = it }, Modifier.navigationBarsPadding())
         },
     ) { insets ->
         Column(
-            Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (material == null || summary == null) {
@@ -298,30 +337,30 @@ fun SummaryEditorScreen(
                 return@Column
             }
             val look = rememberAlbumLook(material.trip, material.media, forExport = true)
-            SummaryCanvas(
-                vm.layout, summary.tiles, material.byId, material.pictures, material.gradeFor(summary), material.textColours(summary),
-                paper = look?.let { rgbColor(it.colours.paper) } ?: Color(0xFFF7F3EA),
-                onSwap = if (canEdit) vm::swap else null,
-                onTap = if (canEdit) { index -> editing = index } else null,
-            )
+            val paper = look?.let { rgbColor(it.colours.paper) } ?: Color(0xFFF7F3EA)
+            // The summary sits on a sheet of paper, lifted off the page by a soft shadow.
+            Box(Modifier.shadow(4.dp).background(paper).padding(8.dp)) {
+                SummaryCanvas(
+                    vm.layout, summary.tiles, material.byId, material.pictures, material.gradeFor(summary), material.textColours(summary),
+                    paper = paper,
+                    onSwap = if (canEdit) vm::swap else null,
+                    onTap = if (canEdit) { index -> editing = index } else null,
+                )
+            }
             if (!canEdit) return@Column
-            Text("Tap a tile to change it. Long-press and drag a tile onto another to swap them.", style = MaterialTheme.typography.bodySmall)
-
-            ChoiceRow("Style", SummaryMode.entries.map { it to it.label }, vm.mode) { mode ->
-                if (mode == SummaryMode.Manual) { pickMany = true; picking = vm::pick } else vm.setMode(mode)
+            Text(
+                "Tap a tile to change it · hold and drag one onto another to swap them",
+                Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PaperCard(Modifier.fillMaxWidth()) {
+                when (tab) {
+                    EditorTab.Style -> StylePanel(vm.mode, summary, material) { mode -> if (mode == SummaryMode.Manual) chooseMine() else vm.setMode(mode) }
+                    EditorTab.Colour -> ColourPanel(vm.mode, summary, material, vm::setFocus)
+                    EditorTab.Layout -> LayoutPanel(vm.layout, vm::setLayout)
+                    EditorTab.Adjust -> AdjustPanel(summary.harmonize, vm::setHarmonize)
+                }
             }
-            if (vm.mode == SummaryMode.Monochrome) {
-                SwatchRow("Colour", material.palette.map { it.color }, summary.colours.firstOrNull()) { vm.setFocus(it) }
-                val matching = material.candidates.count { io.github.lbondoc.postmarked.domain.color.share(it.swatches, Oklab.fromRgb(hexToRgb(summary.colours.first()))) >= MONOCHROME_SHARE }
-                Text("$matching photos are mostly this colour. Empty places become colour tiles.", style = MaterialTheme.typography.bodySmall)
-            }
-            ChoiceRow("Layout", Layout.entries.map { it to it.label }, vm.layout, vm::setLayout)
-            Text("Harmonize colours: ${(summary.harmonize * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-            Slider(value = summary.harmonize.toFloat(), onValueChange = { vm.setHarmonize(it.toDouble()) })
-            Text("Gives every photo the same look, from this summary's colours. Your photos themselves aren't changed.", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { pickMany = true; picking = vm::pick }) { Text("Choose the photos myself") }
-            OutlinedTextField(value = summary.name, onValueChange = vm::rename, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            if (summary.id != null) TextButton(onClick = { confirmingDelete = true }) { Text("Delete summary", color = MaterialTheme.colorScheme.error) }
         }
     }
 
@@ -330,6 +369,9 @@ fun SummaryEditorScreen(
         TileSheet(
             index = index,
             tile = summary.tiles.getOrElse(index) { SummaryTile() },
+            photo = summary.tiles.getOrNull(index)?.media?.let { material.byId[it] },
+            thumbnail = summary.tiles.getOrNull(index)?.media?.let { material.thumbnails[it] },
+            tripId = tripId,
             slotCount = vm.layout.slots.size,
             colours = (summary.colours + material.palette.map { rgbToHex(it.rgb) } + listOf("#FFFFFF", "#1F1B16")).distinct(),
             quickTexts = listOfNotNull(
@@ -353,6 +395,23 @@ fun SummaryEditorScreen(
             onClose = { exporting = false },
         )
     }
+    if (renaming && summary != null) {
+        var name by remember { mutableStateOf(summary.name) }
+        AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text("Name this summary") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it.take(80) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (summary.id != null) TextButton(onClick = { renaming = false; confirmingDelete = true }) {
+                        Text("Delete summary", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.rename(name); renaming = false }, enabled = name.isNotBlank()) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+        )
+    }
     if (confirmingDelete) AlertDialog(
         onDismissRequest = { confirmingDelete = false },
         title = { Text("Delete this summary?") },
@@ -362,35 +421,146 @@ fun SummaryEditorScreen(
     )
 }
 
+// ---------- The editor's panels, one per tab ----------
+
 @Composable
-private fun <T> ChoiceRow(label: String, options: List<Pair<T, String>>, chosen: T, onChoose: (T) -> Unit) {
-    Text(label, style = MaterialTheme.typography.labelLarge)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for ((value, name) in options) FilterChip(selected = value == chosen, onClick = { onChoose(value) }, label = { Text(name) })
+private fun StylePanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (SummaryMode) -> Unit) {
+    SectionLabel("Style")
+    val first = summary.colours.firstOrNull()?.let { rgbColor(hexToRgb(it)) } ?: MaterialTheme.colorScheme.outlineVariant
+    val palette = material.palette.map { rgbColor(it.rgb) }
+    Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (option in SummaryMode.entries) {
+            val stripes = when (option) {
+                SummaryMode.Monochrome -> listOf(first)
+                SummaryMode.Palette -> palette.take(3)
+                SummaryMode.Rainbow -> palette.take(5)
+                SummaryMode.Manual -> emptyList()
+            }
+            StyleCard(
+                if (option == SummaryMode.Manual) "My picks" else option.label, stripes, option == mode,
+                Modifier.weight(1f),
+            ) { onChoose(option) }
+        }
+    }
+    if (mode == SummaryMode.Manual) Text("Tap My picks again to choose different photos.", style = MaterialTheme.typography.bodySmall)
+}
+
+/** A style choice: a small preview of its colours (dashed when you choose them yourself) and its name. */
+@Composable
+private fun StyleCard(label: String, stripes: List<Color>, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val colours = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier.clip(shape).background(colours.surfaceContainerHigh)
+            .border(2.dp, if (selected) colours.onSurface else Color.Transparent, shape)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
+            .padding(vertical = 8.dp, horizontal = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.size(38.dp).clip(RoundedCornerShape(6.dp)).then(
+            if (stripes.isEmpty()) Modifier.dashedBorder(colours.outline) else Modifier,
+        )) {
+            for (c in stripes) Box(Modifier.weight(1f).fillMaxHeight().background(c))
+        }
+        Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2)
     }
 }
 
+private fun Modifier.dashedBorder(colour: Color) = drawBehind {
+    drawRoundRect(colour, style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))), cornerRadius = CornerRadius(6.dp.toPx()))
+}
+
 @Composable
-private fun SwatchRow(label: String, colours: List<Oklab>, chosenHex: String?, onChoose: (Oklab) -> Unit) {
-    Text(label, style = MaterialTheme.typography.labelLarge)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (c in colours) {
-            val hex = rgbToHex(c.toRgb())
-            FilterChip(
-                selected = hex == chosenHex,
-                onClick = { onChoose(c) },
-                label = { Text(colourName(c)) },
-                leadingIcon = { Box(Modifier.size(16.dp).background(rgbColor(c.toRgb()), CircleShape)) },
+private fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (Oklab) -> Unit) {
+    // How many photos are mostly each colour: what a one-colour summary can be built from.
+    val matching = remember(material) {
+        material.palette.associate { swatch -> rgbToHex(swatch.rgb) to material.candidates.count { share(it.swatches, swatch.color) >= MONOCHROME_SHARE } }
+    }
+    val chosen = summary.colours.firstOrNull().takeIf { mode == SummaryMode.Monochrome }
+    SectionLabel(chosen?.let { "Colour · ${matching[it] ?: 0} photos match" } ?: "Colour")
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        material.palette.forEachIndexed { i, swatch ->
+            val hex = rgbToHex(swatch.rgb)
+            StampSwatch(
+                rgbColor(swatch.rgb), colourName(swatch.color), hex == chosen, onClick = { onChoose(swatch.color) },
+                count = matching[hex], tilt = if (i % 2 == 0) -2f else 2f,
             )
+        }
+    }
+    Text(
+        if (chosen == null) "Pick a colour to make a one-colour summary from it."
+        else "Places without a matching photo become colour tiles.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun LayoutPanel(chosen: Layout, onChoose: (Layout) -> Unit) {
+    SectionLabel("Layout")
+    Row(Modifier.horizontalScroll(rememberScrollState()).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (layout in Layout.entries) {
+            val on = layout == chosen
+            val shape = RoundedCornerShape(10.dp)
+            Column(
+                Modifier.width(72.dp).selectable(on, role = Role.RadioButton) { onChoose(layout) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                LayoutPreview(layout, Modifier.size(60.dp).clip(shape).background(Color.White).border(2.dp, if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent, shape).padding(8.dp))
+                Text(layout.label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 2)
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** A layout's slots drawn as grey blocks, fitted into the box. */
+@Composable
+private fun LayoutPreview(layout: Layout, modifier: Modifier) {
+    Canvas(modifier) {
+        val aspect = layout.aspect.toFloat()
+        val w = if (aspect >= 1) size.width else size.height * aspect
+        val h = if (aspect >= 1) size.width / aspect else size.height
+        val left = (size.width - w) / 2
+        val top = (size.height - h) / 2
+        for (slot in layout.slots) {
+            val x = left + slot.x.toFloat() * w
+            val y = top + slot.y.toFloat() * h
+            val sw = slot.w.toFloat() * w
+            val sh = slot.h.toFloat() * h
+            rotate(slot.rotation.toFloat(), pivot = Offset(x + sw / 2, y + sh / 2)) {
+                drawRect(Color(0xFFA59E92), Offset(x, y), Size(sw, sh))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdjustPanel(harmonize: Double, onChange: (Double) -> Unit) {
+    SectionLabel("Adjust · all tiles")
+    Text("Match colours ${(harmonize * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
+    Slider(
+        value = harmonize.toFloat(), onValueChange = { onChange(it.toDouble()) },
+        colors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.onSurface, activeTrackColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    )
+    Text(
+        "Gives every photo the same look, from this summary's colours. Your photos themselves aren't changed.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+// ---------- Tapping a tile ----------
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TileSheet(
     index: Int,
     tile: SummaryTile,
+    photo: TripMedia?,
+    thumbnail: String?,
+    tripId: String,
     slotCount: Int,
     colours: List<String>,
     quickTexts: List<String>,
@@ -399,16 +569,44 @@ private fun TileSheet(
     onPickPhoto: () -> Unit,
     onClose: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onClose) {
-        Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Tile ${index + 1} of $slotCount", style = MaterialTheme.typography.titleMedium)
-            if (tile.media != null) {
-                Button(onClick = onPickPhoto) { Text("Replace photo") }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Switch(checked = !tile.noGrade, onCheckedChange = { onChange(tile.copy(noGrade = !it)) })
-                    Text("Harmonize this photo")
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)).background(tile.bg?.let { rgbColor(hexToRgb(it)) } ?: MaterialTheme.colorScheme.surfaceVariant)) {
+                    if (photo != null) Thumbnail(tripId, photo.id, photo.kind, thumbnail)
                 }
-                OutlinedButton(onClick = { onChange(SummaryTile(text = quickTexts.firstOrNull(), bg = colours.first())) }) { Text("Make it a text tile") }
+                Column {
+                    Text(
+                        when {
+                            photo != null -> "Photo by ${photo.profile?.displayName ?: "someone"}"
+                            tile.text != null -> "Text tile"
+                            else -> "Colour tile"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        listOfNotNull(photo?.localTime?.format(MOMENT), "tile ${index + 1} of $slotCount").joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (tile.media != null) {
+                SheetRow("Replace photo", "Pick another from the trip", onPickPhoto)
+                SheetRow("Make it a text tile", "Trip name, miles, dates or your words") {
+                    onChange(SummaryTile(text = quickTexts.firstOrNull(), bg = colours.first()))
+                }
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        .toggleable(!tile.noGrade, role = Role.Switch) { onChange(tile.copy(noGrade = !it)) }
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Match colours on this photo", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Text("Follows the summary's Match colours setting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = !tile.noGrade, onCheckedChange = null) // the whole row is the switch
+                }
             } else {
                 OutlinedTextField(
                     value = tile.text.orEmpty(),
@@ -416,30 +614,38 @@ private fun TileSheet(
                     label = { Text("Text (leave empty for a plain colour)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (text in quickTexts) FilterChip(selected = tile.text == text, onClick = { onChange(tile.copy(text = text, bg = tile.bg ?: colours.first())) }, label = { Text(text) })
+                FlowRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (text in quickTexts) InkChip(text, tile.text == text, { onChange(tile.copy(text = text, bg = tile.bg ?: colours.first())) })
                 }
-                Text("Colour", style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionLabel("Colour")
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (hex in colours) {
                         val rgb = hexToRgb(hex)
                         Box(
-                            Modifier.size(36.dp)
+                            Modifier.size(40.dp)
                                 .background(rgbColor(rgb), CircleShape)
-                                .border(if (tile.bg == hex) 3.dp else 1.dp, if (tile.bg == hex) MaterialTheme.colorScheme.primary else Color.Gray, CircleShape)
+                                .border(if (tile.bg == hex) 3.dp else 1.dp, if (tile.bg == hex) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant, CircleShape)
                                 .clickable(onClickLabel = "Use ${colourName(Oklab.fromRgb(rgb))}") { onChange(tile.copy(bg = hex)) },
                         )
                     }
                 }
-                Button(onClick = onPickPhoto) { Text("Use a photo instead") }
+                SheetRow("Use a photo instead", "Pick one from the trip", onPickPhoto)
             }
             // Buttons as well as dragging, so tiles can be moved without a long-press gesture.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onMove(index - 1) }, enabled = index > 0) { Text("Move earlier") }
-                OutlinedButton(onClick = { onMove(index + 1) }, enabled = index < slotCount - 1) { Text("Move later") }
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { onMove(index - 1) }, enabled = index > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Move earlier") }
+                OutlinedButton(onClick = { onMove(index + 1) }, enabled = index < slotCount - 1, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Move later") }
             }
-            TextButton(onClick = onClose) { Text("Done") }
         }
+    }
+}
+
+/** A tall, easy-to-hit row in a sheet: what it does, and a line on what that means. */
+@Composable
+private fun SheetRow(title: String, detail: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

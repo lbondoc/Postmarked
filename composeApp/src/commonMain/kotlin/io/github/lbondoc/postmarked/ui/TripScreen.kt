@@ -14,16 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,17 +59,8 @@ import io.github.lbondoc.postmarked.data.Song
 import io.github.lbondoc.postmarked.data.Songs
 import io.github.lbondoc.postmarked.data.places
 import io.github.lbondoc.postmarked.domain.color.Swatch
-import io.github.lbondoc.postmarked.domain.color.colourName
 import io.github.lbondoc.postmarked.domain.color.mergePalettes
-import io.github.lbondoc.postmarked.domain.color.rgbToHex
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
-import kotlinx.coroutines.delay
 import io.github.lbondoc.postmarked.domain.trip.TripArea
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.daysUntil
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.inviteLink
@@ -153,6 +140,7 @@ fun TripScreen(
     /** The list the viewer swipes through, and where it opened. */
     var viewing by remember { mutableStateOf<Pair<List<TripMedia>, Int>?>(null) }
     var confirmingExit by remember { mutableStateOf(false) }
+    var filtering by remember { mutableStateOf(false) }
     val uploads by cameraRoll.uploads.collectAsState()
     val uploadProgress by cameraRoll.uploadProgress.collectAsState()
     val mobileData by cameraRoll.mobileData.collectAsState()
@@ -193,8 +181,11 @@ fun TripScreen(
                     trip.regions.forEach { Text(it.label, style = MaterialTheme.typography.bodySmall) }
                     if (trip.myRole?.canEdit == true) ThemePicker(trip, tripPalette(vm.media)) { id, accent -> vm.setTheme(id, accent) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onOpenMap) { Text("Map and route") }
-                        Button(onClick = onOpenSummaries) { Text("Summaries") }
+                        Button(
+                            onClick = onOpenMap, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.onSecondary),
+                        ) { Text("Map and route") }
+                        Button(onClick = onOpenSummaries, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium) { Text("Summaries") }
                     }
 
                     SongsSection(trip, vm.songs, onChanged = vm::loadSongs)
@@ -236,8 +227,12 @@ fun TripScreen(
                     }
                 }
             }
-            if (trip != null) gallery(tripId, trip.startDate, vm) { list, index -> viewing = list to index }
+            if (trip != null) gallery(tripId, trip.startDate, vm, onFilter = { filtering = true }) { list, index -> viewing = list to index }
         }
+    }
+
+    if (filtering && trip != null) {
+        FilterSheet(vm.media, vm.places, trip.startDate, vm.filter, onChange = { vm.filter = it }, onClose = { filtering = false })
     }
 
     viewing?.let { (list, index) ->
@@ -314,110 +309,8 @@ fun TripScreen(
     }
 }
 
-/** View switcher, filters and the grouped grid, as items of the trip page's grid. */
-private fun LazyGridScope.gallery(
-    tripId: String,
-    tripStart: LocalDate,
-    vm: TripViewModel,
-    onOpen: (List<TripMedia>, Int) -> Unit,
-) {
-    val visible = filterMedia(vm.media, vm.filter, vm.places)
-    val sections = gallerySections(visible, vm.media, vm.view, tripStart)
-    // The viewer swipes through everything shown, in order, including the shots folded behind each tile.
-    val ordered = sections.flatMap { section -> section.tiles.flatMap { it.all } }
-
-    item(span = { GridItemSpan(maxLineSpan) }) {
-        Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "Photos and videos (" + (if (vm.filter.isEmpty) "${vm.media.size}" else "${visible.size} of ${vm.media.size}") + ")",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Chips("View", GalleryView.entries.map { it to it.label }, setOf(vm.view)) { chosen ->
-                (chosen - vm.view).firstOrNull()?.let { vm.view = it } // one view at a time
-            }
-            val f = vm.filter
-            Chips("Type", listOf(MediaKind.Photo to "Photos", MediaKind.Video to "Videos"), f.kinds) { vm.filter = f.copy(kinds = it) }
-            Chips("Who", vm.media.distinctBy { it.contributor }.map { it.contributor to (it.profile?.displayName ?: "Someone") }, f.people) {
-                vm.filter = f.copy(people = it)
-            }
-            Chips("Day", vm.media.map { it.takenOn }.distinct().sorted().map { it to "Day ${tripStart.daysUntil(it) + 1}" }, f.days) {
-                vm.filter = f.copy(days = it)
-            }
-            Chips("Place", vm.places.keys.sorted().map { it to it.substringBefore(',') }, f.places) { vm.filter = f.copy(places = it) }
-            ColourChips(tripPalette(vm.media), f.colours) { vm.filter = f.copy(colours = it) }
-            if (!f.isEmpty) TextButton(onClick = { vm.filter = GalleryFilter() }) { Text("Clear filters") }
-            if (vm.media.isNotEmpty() && visible.isEmpty()) Text("Nothing matches these filters.")
-        }
-    }
-    for (section in sections) {
-        section.title?.let { title ->
-            item(span = { GridItemSpan(maxLineSpan) }, key = "section:$title") {
-                Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 8.dp, top = 12.dp))
-            }
-        }
-        items(section.tiles, key = { it.cover.id }) { tile ->
-            Box(Modifier.clickable(onClickLabel = "Open") { onOpen(ordered, ordered.indexOf(tile.cover)) }) {
-                Thumbnail(tripId, tile.cover.id, tile.cover.kind, vm.thumbnails[tile.cover.id])
-                if (tile.others.isNotEmpty()) Text(
-                    "+${tile.others.size}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
-                        .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp),
-                )
-            }
-        }
-    }
-}
-
 /** The trip's main colours, from every photo's palette. */
 fun tripPalette(media: List<TripMedia>): List<Swatch> = mergePalettes(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
-
-/** Filter chips for the trip's main colours, each showing its colour and named for screen readers. */
-@Composable
-private fun ColourChips(palette: List<Swatch>, chosen: Set<String>, onChange: (Set<String>) -> Unit) {
-    if (palette.size < 2) return
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Colour", style = MaterialTheme.typography.labelMedium)
-        palette.forEachIndexed { index, swatch ->
-            val hex = rgbToHex(swatch.rgb)
-            // Each colour fades and grows in a moment after the one before it.
-            val shown = remember(hex) { Animatable(0f) }
-            LaunchedEffect(hex) { delay(index * 70L); shown.animateTo(1f, tween(220)) }
-            FilterChip(
-                modifier = Modifier.graphicsLayer { alpha = shown.value; scaleX = 0.7f + 0.3f * shown.value; scaleY = 0.7f + 0.3f * shown.value },
-                selected = hex in chosen,
-                onClick = { onChange(if (hex in chosen) chosen - hex else chosen + hex) },
-                label = { Text(colourName(swatch.color)) },
-                leadingIcon = { Box(Modifier.size(16.dp).background(Color(0xFF000000 or swatch.rgb.toLong()), CircleShape)) },
-            )
-        }
-    }
-}
-
-/** A labelled row of on/off choices that scrolls sideways. Hidden when there's only one choice. */
-@Composable
-private fun <T> Chips(label: String, options: List<Pair<T, String>>, chosen: Set<T>, onChange: (Set<T>) -> Unit) {
-    if (options.size < 2) return
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        for ((value, name) in options) {
-            FilterChip(
-                selected = value in chosen,
-                onClick = { onChange(if (value in chosen) chosen - value else chosen + value) },
-                label = { Text(name) },
-            )
-        }
-    }
-}
 
 /** One square in a grid of a trip's photos and videos. */
 @Composable
