@@ -123,7 +123,7 @@ must pass as well.
 
 ## Phase 4 — Summaries: presets, layouts, crop
 
-- [ ] **S1 Five new filters.** Mono, Moody, Vivid, Desert, Night Drive.
+- [x] **S1 Five new filters.** Mono, Moody, Vivid, Desert, Night Drive.
   Check: `./gradlew :core:domain:jvmTest --tests '*LooksTest*'` (Mono gives $R = G = B$, Vivid raises chroma,
   Moody lowers lightness, Desert warms, Night Drive cools and darkens)
 - [ ] **S2 New layouts: 2-up, 4-up, panorama split.**

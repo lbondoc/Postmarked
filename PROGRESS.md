@@ -1049,6 +1049,40 @@ BLOCKED, and nothing gets deployed from this sandbox.
 - Follow-ups: **needs manual check:** in the summary editor, a text tile's "Day notes" chips, and the export
   caption for a one-day summary showing the quote.
 
+## S1 Five new filters
+- Changes:
+  - `core/domain/.../color/Looks.kt`: `Filter.Mono`, `Moody`, `Vivid`, `Desert` and `NightDrive` ("Night Drive"),
+    each a chain of the existing CSS-style steps (`saturation`, `contrast`, `brightness`, `sepia`, and the
+    channel `diagonal` that the Warmth slider already uses). SPEC §8.1 names these five. They're added after
+    the existing seven, and saved looks store filters by name (`LookData`), so existing summaries are
+    unaffected and the picker (`Filter.entries`) shows them automatically.
+    - Mono: greyscale, slightly matte.
+    - Moody: less colour and light, a bit more contrast.
+    - Vivid: saturation ×1.45 with a touch of contrast.
+    - Desert: sepia plus reds up and blues down.
+    - Night Drive: blue up, red down, darker.
+  - `LooksTest.kt`: five new cases, the task's check, each over five photo colours (plus mid-grey where it
+    applies).
+    - Mono gives $R = G = B$ exactly.
+    - Vivid raises OKLab chroma.
+    - Moody lowers OKLab lightness.
+    - Desert raises red relative to blue and moves OKLab $b$ toward yellow.
+    - Night Drive raises blue relative to red and lowers lightness.
+
+    The seven existing tests are untouched.
+- Approach: the first version of the Night Drive test compared the blue−red difference, and it failed for
+  sky blue (217−74 → 189−54). The filter was fine. Darkening scales all channels, which shrinks the gap even
+  as the colour cools. I changed my new test to the ratio $\frac{b+1}{r+1}$, which measures cooling
+  independent of brightness: 2.9 → 3.5 for that sky. Filters as `Grade` chains keep them GPU-applied and
+  non-destructive like the others. A lookup-table approach was considered and rejected: it needs new
+  drawing code.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*LooksTest*'` → `tests="12" skipped="0" failures="0"
+    errors="0"`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check:** how the five look on real photos in the per-photo editor.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).
