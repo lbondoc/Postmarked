@@ -68,6 +68,10 @@ import io.github.lbondoc.postmarked.domain.color.Swatch
 import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.TripCache
+import io.github.lbondoc.postmarked.data.TripSnapshot
+import io.github.lbondoc.postmarked.data.isOffline
+import io.github.lbondoc.postmarked.data.loadOrCached
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.toRoutePoint
@@ -96,21 +100,39 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     var inviteToken by mutableStateOf<String?>(null)
         private set
 
+    /** True when the network failed and the page shows the copy saved last time. */
+    var offline by mutableStateOf(false)
+        private set
+    private val cache = TripCache.shared
+
     fun load() = run {
-        trip = Trips.byId(tripId)
-        songs = Songs.ofTrip(tripId)
+        val loaded = loadOrCached(
+            { Trips.byId(tripId) },
+            { t -> cache.saveTrip(cache.trip(tripId)?.copy(trip = t) ?: TripSnapshot(t)) },
+            { cache.trip(tripId)?.trip },
+        )
+        trip = loaded.value
+        offline = loaded.offline
+        // Songs are extras: offline the page simply shows none.
+        songs = try { Songs.ofTrip(tripId) } catch (e: Exception) { if (isOffline(e)) emptyList() else throw e }
     }
 
     fun loadSongs() = run { songs = Songs.ofTrip(tripId) }
 
     fun loadMedia() = run {
-        val items = Media.ofTrip(tripId)
-        thumbnails = Media.thumbnailUrls(tripId, items.map { it.id })
-        if (places.isEmpty()) places = Trips.places(tripId)
+        val loaded = loadOrCached(
+            { Media.ofTrip(tripId).let { it to Media.thumbnailUrls(tripId, it.map { m -> m.id }) } },
+            { (items, thumbs) -> cache.trip(tripId)?.let { cache.saveTrip(it.copy(media = items, thumbnails = thumbs)) } },
+            { cache.trip(tripId)?.takeIf { it.media.isNotEmpty() }?.let { it.media to it.thumbnails } },
+        )
+        val (items, thumbs) = loaded.value
+        thumbnails = thumbs
+        if (loaded.offline) offline = true
+        if (places.isEmpty() && !loaded.offline) places = Trips.places(tripId)
         media = items
         // Photos uploaded before palettes existed get theirs now, once (it is saved for everyone).
         val missing = items.filter { it.palette == null }
-        if (missing.isNotEmpty()) {
+        if (missing.isNotEmpty() && !loaded.offline) {
             val filled = Media.fillPalettes(tripId, missing)
             media = media.map { filled[it.id] ?: it }
         }
@@ -236,6 +258,7 @@ fun TripScreen(
             // Everything above the photos is one full-width item.
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (vm.offline) OfflineBanner()
                     vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (trip == null) {
                         if (vm.error == null) CircularProgressIndicator()

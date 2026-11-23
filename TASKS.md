@@ -87,7 +87,7 @@ must pass as well.
 
 ## Phase 2 — Offline and live mode
 
-- [ ] **O1 Trip cache.** Save the trip list and per-trip JSON after each load (`TripCacheStore`: files on Android,
+- [x] **O1 Trip cache.** Save the trip list and per-trip JSON after each load (`TripCacheStore`: files on Android,
   `localStorage` on web). Show the offline banner when falling back to it.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*TripCacheTest*'` (save → load round-trip, a corrupt
   file loads as empty without crashing, a failed network load returns the cached copy)

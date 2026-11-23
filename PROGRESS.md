@@ -713,6 +713,52 @@ BLOCKED, and nothing gets deployed from this sandbox.
     `UploadQueue.cancel`), and those partial files stay. They're never shown, because no media row points at
     them.
 
+## O1 Trip cache
+- Changes:
+  - `data/TripCache.kt` (new):
+    - The `TripCacheStore` interface the task names (read, write, clear).
+    - `TripCache`: kotlinx-serialization JSON for the trip list, the list's cover links, and a per-trip
+      `TripSnapshot` (the trip with its members, media rows and thumbnail links). It saves after each load,
+      and any missing or unreadable copy reads as nothing.
+    - `loadOrCached`: on a network failure (`isOffline`: supabase-kt's `HttpRequestException`) it returns the
+      saved copy marked offline. Any other failure, or no saved copy, is thrown as before, so a server refusal
+      is never hidden behind stale data.
+  - `androidApp/.../AndroidTripCacheStore.kt` (new): JSON files under app `files/offline/`, written with
+    `AtomicFile` like the upload queue ("files on Android").
+  - `webApp/.../LocalStorageTripCache.kt` (new): `localStorage` with a `postmarked:` prefix. Every access is
+    wrapped, because storage can be full or blocked (private browsing), and then the web just has no offline
+    copy ("localStorage on web").
+  - `PostmarkedApp.kt`, `web/Main.kt`: set the store at start, and clear it on sign-out. The saved trips
+    belong to that account, as the upload queue already does on Android. `NoTripCache` is the default (iOS
+    and tests).
+  - `ui/TripListScreen.kt` and `ui/TripScreen.kt`: loads go through `loadOrCached`, and each screen shows
+    `OfflineBanner` ("Offline, showing what you last saw", SPEC's words) when it fell back. Offline, the trip
+    page shows no songs instead of failing, and skips the place shapes and the palette backfill (both need the
+    network).
+  - `ui/App.kt`: the `OfflineBanner` composable.
+  - `TripCacheTest.kt` (new), the task's check:
+    - Save then load round-trips the list and a snapshot with members, cover, coordinates and thumbnail links.
+    - Corrupt JSON and a wrong shape load as empty or null without throwing.
+    - A failed network load returns the cached copy marked offline.
+    - Offline with nothing saved still throws, and a non-network error isn't masked by a saved copy.
+- Approach: route and day notes aren't cached yet. SPEC lists them, but day notes don't exist until J1, and the
+  route comes from a server function plus the media. The task's check and title cover the trip list and
+  per-trip JSON. I considered caching raw PostgREST responses and rejected it: typed snapshots keep the cache
+  readable and let `ignoreUnknownKeys` survive model changes.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*TripCacheTest*'` → `tests="4" skipped="0"
+    failures="0" errors="0"`.
+  - All targets compile; the smoke test shows the web store is set up at start without errors.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; iOS compile → `BUILD SUCCESSFUL`; web build + smoke →
+    passed.
+- Follow-ups:
+  - Cache the route (the map screen) and, after J1, the day notes.
+  - **Needs manual check** on a phone: open a trip, turn on airplane mode, reopen the app. The list and trip
+    should show with the banner, and thumbnails should come from Coil's path-keyed disk cache.
+  - Offline, a session that can't be refreshed may sign the user out; that's the existing `// shortcut:` in
+    `App.kt`.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

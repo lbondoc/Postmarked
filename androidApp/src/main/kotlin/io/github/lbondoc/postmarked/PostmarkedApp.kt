@@ -3,6 +3,7 @@ package io.github.lbondoc.postmarked
 import android.app.Application
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.lbondoc.postmarked.data.TripCache
 import io.github.lbondoc.postmarked.data.supabase
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -21,9 +22,13 @@ class PostmarkedApp : Application() {
             previous?.uncaughtException(thread, error) // then crash as usual
         }
         UploadQueue.init(this)
+        TripCache.store = AndroidTripCacheStore(this)
         MainScope().launch {
             supabase.auth.sessionStatus.collect { status ->
-                if (status is SessionStatus.NotAuthenticated && status.isSignOut) UploadQueue.clear(this@PostmarkedApp)
+                if (status is SessionStatus.NotAuthenticated && status.isSignOut) {
+                    UploadQueue.clear(this@PostmarkedApp)
+                    TripCache.store.clear()
+                }
             }
         }
     }

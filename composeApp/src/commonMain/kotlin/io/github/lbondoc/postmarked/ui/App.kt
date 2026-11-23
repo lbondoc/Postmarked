@@ -1,5 +1,9 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -172,6 +176,17 @@ abstract class ScreenModel : ViewModel() {
 }
 
 // shortcut: English month names only, switch to the platform's locale formatting when translating the app.
+/** Shown above content read from the offline copy (SPEC §4). */
+@Composable
+internal fun OfflineBanner(modifier: Modifier = Modifier) {
+    Text(
+        "Offline, showing what you last saw",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
 internal val DAY = LocalDate.Format {
     monthName(MonthNames.ENGLISH_ABBREVIATED); char(' '); day(Padding.NONE); char(','); char(' '); year()
 }

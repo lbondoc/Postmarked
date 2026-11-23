@@ -1,6 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
 import io.github.lbondoc.postmarked.data.Media
+import io.github.lbondoc.postmarked.data.TripCache
+import io.github.lbondoc.postmarked.data.loadOrCached
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
@@ -58,10 +60,16 @@ class TripListViewModel : ScreenModel() {
     var covers by mutableStateOf<Map<String, String>>(emptyMap())
         private set
 
+    /** True when the network failed and the list is the one saved last time. */
+    var offline by mutableStateOf(false)
+        private set
+
     fun refresh() = run {
-        val mine = Trips.mine()
-        trips = mine
-        covers = Media.coverUrls(mine)
+        val cache = TripCache.shared
+        val loaded = loadOrCached({ Trips.mine() }, cache::saveTrips, { cache.trips().ifEmpty { null } })
+        trips = loaded.value
+        offline = loaded.offline
+        covers = if (offline) cache.covers() else Media.coverUrls(loaded.value).also(cache::saveCovers)
     }
 
     fun join(linkOrCode: String, onJoined: (String) -> Unit) = run { onJoined(Trips.join(tokenFromInvite(linkOrCode))) }
@@ -110,6 +118,7 @@ fun TripListScreen(
                     }
                 }
             }
+            if (vm.offline) item { OfflineBanner() }
             items(vm.trips.orEmpty(), key = { it.id }) { trip ->
                 ListItem(
                     leadingContent = vm.covers[trip.id]?.let { url ->
