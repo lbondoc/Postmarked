@@ -97,11 +97,12 @@ internal fun LazyGridScope.gallery(
     tripId: String,
     tripStart: LocalDate,
     vm: TripViewModel,
+    stopNames: Map<Int, String>,
     onFilter: () -> Unit,
     onOpen: (List<TripMedia>, Int) -> Unit,
 ) {
     val visible = filterMedia(vm.media, vm.filter, vm.places)
-    val sections = gallerySections(visible, vm.media, vm.view, tripStart)
+    val sections = gallerySections(visible, vm.media, vm.view, tripStart, stopNames)
     // The viewer swipes through everything shown, in order, including the shots folded behind each tile.
     val ordered = sections.flatMap { section -> section.tiles.flatMap { it.all } }
 

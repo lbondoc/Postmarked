@@ -19,6 +19,12 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
@@ -186,6 +192,7 @@ fun ImportScreen(
     ) { insets ->
         val found = vm.found
         val gridState = rememberLazyGridState()
+        val scope = rememberCoroutineScope()
         Box(Modifier.fillMaxSize().padding(insets)) {
             when {
                 vm.accessRefused -> Message("Postmarked needs access to your photos to add them. Allow it when asked, or in the app's settings.") {
@@ -202,26 +209,48 @@ fun ImportScreen(
                         var anchor = -1
                         var on = true
                         var base = emptySet<String>()
+                        var finger = Offset.Zero
+                        var edgeScroll: Job? = null
                         fun indexAt(at: Offset) = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
                             at.x >= info.offset.x && at.x < info.offset.x + info.size.width &&
                                 at.y >= info.offset.y && at.y < info.offset.y + info.size.height
                         }?.let { order.indexOf(it.key) }?.takeIf { it >= 0 }
+                        fun tickTo(at: Offset) {
+                            val here = indexAt(at) ?: return
+                            vm.setRange(base, order.subList(minOf(anchor, here), maxOf(anchor, here) + 1), on)
+                        }
+                        val edge = 72.dp.toPx()
+                        val fastest = 24.dp.toPx() // per frame, with the finger right at the edge
+                        fun stop() { anchor = -1; edgeScroll?.cancel(); edgeScroll = null }
                         detectDragGesturesAfterLongPress(
                             onDragStart = { at ->
                                 anchor = indexAt(at) ?: -1
                                 if (anchor >= 0) {
                                     on = order[anchor] !in vm.selected // starting on a ticked photo unticks
                                     base = vm.selected.toSet()
+                                    finger = at
+                                    // Holding near the top or bottom edge scrolls, faster the closer to the edge, ticking as it goes.
+                                    edgeScroll = scope.launch {
+                                        while (isActive) {
+                                            val speed = when {
+                                                finger.y < edge -> -(edge - finger.y) / edge * fastest
+                                                finger.y > size.height - edge -> (finger.y - (size.height - edge)) / edge * fastest
+                                                else -> 0f
+                                            }
+                                            if (speed != 0f && gridState.scrollBy(speed) != 0f) tickTo(finger)
+                                            delay(16)
+                                        }
+                                    }
                                 }
                             },
                             onDrag = { change, _ ->
                                 if (anchor < 0) return@detectDragGesturesAfterLongPress
                                 change.consume()
-                                val here = indexAt(change.position) ?: return@detectDragGesturesAfterLongPress
-                                vm.setRange(base, order.subList(minOf(anchor, here), maxOf(anchor, here) + 1), on)
+                                finger = change.position
+                                tickTo(finger)
                             },
-                            onDragEnd = { anchor = -1 },
-                            onDragCancel = { anchor = -1 },
+                            onDragEnd = { stop() },
+                            onDragCancel = { stop() },
                         )
                     },
                     columns = GridCells.Adaptive(96.dp),

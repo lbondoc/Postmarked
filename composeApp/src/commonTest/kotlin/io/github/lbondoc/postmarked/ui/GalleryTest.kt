@@ -68,6 +68,9 @@ class GalleryTest {
         val onlySam = filterMedia(items, GalleryFilter(people = setOf("Sam")), places)
         val sections = gallerySections(onlySam, items, GalleryView.Stops, LocalDate(2026, 10, 3))
         assertEquals(listOf("Stop 2 · 1", "No location · 1"), sections.map { it.title })
+        // Once a stop's place name is known, it joins the number.
+        val named = gallerySections(onlySam, items, GalleryView.Stops, LocalDate(2026, 10, 3), stopNames = mapOf(1 to "Joshua Tree"))
+        assertEquals(listOf("Stop 2 · Joshua Tree · 1", "No location · 1"), named.map { it.title })
     }
 
     @Test

@@ -24,6 +24,19 @@ data class Place(val label: String, val geometry: JsonObject)
 fun placesFromNominatim(json: String): List<Place> =
     Json.parseToJsonElement(json).jsonArray.mapNotNull { (it as? JsonObject)?.toPlace() }
 
+/**
+ * A short name for where a Nominatim reverse lookup landed: the village, town or city, else the
+ * area's own name (a forest, a park), else the county. Null when it found nothing.
+ */
+fun nameFromReverse(json: String): String? {
+    val found = Json.parseToJsonElement(json) as? JsonObject ?: return null
+    val address = found["address"] as? JsonObject
+    fun text(o: JsonObject?, key: String) = (o?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+    return listOf("village", "town", "city", "hamlet", "suburb").firstNotNullOfOrNull { text(address, it) }
+        ?: text(found, "name")
+        ?: text(address, "county")
+}
+
 private fun JsonObject.toPlace(): Place? {
     // `as?` is a safe cast: null instead of a crash when the server sends something unexpected.
     val label = (this["display_name"] as? JsonPrimitive)?.contentOrNull ?: return null

@@ -63,6 +63,8 @@ import io.github.lbondoc.postmarked.domain.color.mergePalettes
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
+import io.github.lbondoc.postmarked.data.toRoutePoint
+import io.github.lbondoc.postmarked.domain.route.planRoute
 import io.github.lbondoc.postmarked.data.inviteLink
 
 class TripViewModel(private val tripId: String) : ScreenModel() {
@@ -153,6 +155,11 @@ fun TripScreen(
     val trip = vm.trip
     val isOwner = trip?.myRole == TripRole.Owner
     val look = rememberAlbumLook(trip, vm.media)
+    // Names are looked up only once someone arranges by stop.
+    val stopPoints = remember(vm.media, vm.view) {
+        if (vm.view == GalleryView.Stops) planRoute(vm.media.mapNotNull { it.toRoutePoint() }).stops.map { it.at } else emptyList()
+    }
+    val stopNames = rememberStopNames(stopPoints)
 
     Scaffold(
         topBar = {
@@ -227,7 +234,7 @@ fun TripScreen(
                     }
                 }
             }
-            if (trip != null) gallery(tripId, trip.startDate, vm, onFilter = { filtering = true }) { list, index -> viewing = list to index }
+            if (trip != null) gallery(tripId, trip.startDate, vm, stopNames, onFilter = { filtering = true }) { list, index -> viewing = list to index }
         }
     }
 

@@ -26,6 +26,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import io.github.lbondoc.postmarked.data.placeName
+import io.github.lbondoc.postmarked.domain.geo.LatLng
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,11 +132,12 @@ fun MapScreen(tripId: String, onBack: () -> Unit, vm: MapViewModel = viewModel {
         }
     }
 
+    val stopNames = rememberStopNames(remember(route) { route?.plan?.stops?.map { it.at }.orEmpty() })
     val stop = openStop?.let { route?.plan?.stops?.getOrNull(it) }
     if (stop != null && route != null) {
         ModalBottomSheet(onDismissRequest = { openStop = null }) {
             Text(
-                "Stop ${openStop!! + 1} · ${stop.ids.size} photos and videos",
+                "${stopTitle(openStop!!, stopNames)} · ${stop.ids.size} photos and videos",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -262,6 +265,16 @@ private fun Summary(route: TripRoute, start: LocalDate, modifier: Modifier) {
             }
         }
     }
+}
+
+/** Place names for [stops], by position, filling in as each lookup finishes; unnamed ones stay numbered. */
+@Composable
+internal fun rememberStopNames(stops: List<LatLng>): Map<Int, String> {
+    var names by remember(stops) { mutableStateOf(emptyMap<Int, String>()) }
+    LaunchedEffect(stops) {
+        stops.forEachIndexed { i, at -> placeName(at)?.let { names = names + (i to it) } }
+    }
+    return names
 }
 
 private fun duration(seconds: Double): String {

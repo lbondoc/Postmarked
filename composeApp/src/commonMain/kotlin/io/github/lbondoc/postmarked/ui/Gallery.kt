@@ -67,7 +67,10 @@ fun <T> countEach(
  * Splits [items] into the sections of [view], with near-identical photos folded into one tile.
  * [allItems] is the whole trip: stops are worked out from everything, so filtering never renumbers them.
  */
-fun gallerySections(items: List<TripMedia>, allItems: List<TripMedia>, view: GalleryView, tripStart: LocalDate): List<Section> =
+fun gallerySections(
+    items: List<TripMedia>, allItems: List<TripMedia>, view: GalleryView, tripStart: LocalDate,
+    stopNames: Map<Int, String> = emptyMap(),
+): List<Section> =
     when (view) {
         GalleryView.All -> listOf(Section(null, tiles(items)))
         GalleryView.Days -> items.groupBy { it.takenOn }.entries.sortedBy { it.key }.map { (day, dayItems) ->
@@ -78,10 +81,13 @@ fun gallerySections(items: List<TripMedia>, allItems: List<TripMedia>, view: Gal
                 .flatMapIndexed { index, stop -> stop.ids.map { it to index } }.toMap()
             // Items with no location (or a glitchy one) have no stop; they go last.
             items.groupBy { stopOf[it.id] }.entries.sortedBy { it.key ?: Int.MAX_VALUE }.map { (stop, stopItems) ->
-                Section(if (stop == null) "No location · ${stopItems.size}" else "Stop ${stop + 1} · ${stopItems.size}", tiles(stopItems))
+                Section(if (stop == null) "No location · ${stopItems.size}" else "${stopTitle(stop, stopNames)} · ${stopItems.size}", tiles(stopItems))
             }
         }
     }
+
+/** "Stop 3 · Big Sur", or just "Stop 3" until (or unless) its name is known. */
+fun stopTitle(index: Int, names: Map<Int, String>) = "Stop ${index + 1}" + (names[index]?.let { " · $it" } ?: "")
 
 /** One photo per moment: the sharpest of each burst, plus videos. What summaries choose from. */
 fun covers(items: List<TripMedia>): List<TripMedia> = tiles(items).map { it.cover }

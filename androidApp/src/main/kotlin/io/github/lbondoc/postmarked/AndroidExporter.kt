@@ -18,12 +18,28 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val QUALITY = 92 // Instagram recompresses anyway; this keeps detail without huge files
+private const val INSTAGRAM = "com.instagram.android"
 
 class AndroidExporter(private val activity: ComponentActivity) : Exporter {
 
     override fun share(images: List<ExportedImage>, text: String) {
-        val uris = writeToCache(images)
-        val send = if (uris.size == 1) {
+        activity.startActivity(Intent.createChooser(sendIntent(writeToCache(images), text), null))
+    }
+
+    override fun postToInstagram(image: ExportedImage, text: String) {
+        val send = sendIntent(writeToCache(listOf(image)), text)
+        val installed = activity.packageManager.getLaunchIntentForPackage(INSTAGRAM) != null
+        activity.startActivity(if (installed) send.setPackage(INSTAGRAM) else Intent.createChooser(send, null))
+    }
+
+    override fun openInstagram(): Boolean {
+        val launch = activity.packageManager.getLaunchIntentForPackage(INSTAGRAM) ?: return false
+        activity.startActivity(launch)
+        return true
+    }
+
+    private fun sendIntent(uris: List<Uri>, text: String): Intent =
+        if (uris.size == 1) {
             Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris.single())
         } else {
             Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
@@ -34,8 +50,6 @@ class AndroidExporter(private val activity: ComponentActivity) : Exporter {
             clipData = ClipData.newRawUri(null, uris.first()).also { clip -> uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) } }
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        activity.startActivity(Intent.createChooser(send, null))
-    }
 
     /** Into Pictures/Postmarked. Android 10+ lets an app add its own pictures without asking for storage access. */
     override suspend fun save(images: List<ExportedImage>) = withContext(Dispatchers.IO) {

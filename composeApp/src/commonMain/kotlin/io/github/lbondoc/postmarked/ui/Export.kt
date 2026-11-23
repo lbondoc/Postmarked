@@ -19,6 +19,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -96,8 +98,18 @@ class ExportedImage(val name: String, val image: ImageBitmap)
 
 /** What only the platform can do with finished images. */
 interface Exporter {
-    /** Opens the share sheet (Instagram, messages, ...) with [images] and [text]. */
+    /** Opens the share sheet (messages, email, ...) with [images] and [text]. */
     fun share(images: List<ExportedImage>, text: String)
+
+    /**
+     * Hands one picture straight to Instagram, which then asks Feed, Story or Message; the share
+     * sheet if Instagram isn't installed. One at a time because Instagram doesn't reliably take
+     * several pictures handed to it at once.
+     */
+    fun postToInstagram(image: ExportedImage, text: String)
+
+    /** Opens Instagram; false if it isn't installed. */
+    fun openInstagram(): Boolean
 
     /** Saves [images] to the phone's photos, in a Postmarked album. */
     suspend fun save(images: List<ExportedImage>)
@@ -313,9 +325,13 @@ fun ExportSheet(
     var text by remember { mutableStateOf(generated()) }
     var working by remember { mutableStateOf<String?>(null) }
     var done by remember { mutableStateOf<String?>(null) }
+    // The finished pictures, kept so a grid can be posted one at a time, and Save after Share is instant.
+    var made by remember(kind, size) { mutableStateOf<List<ExportedImage>?>(null) }
+    var posted by remember(kind, size) { mutableIntStateOf(0) }
 
     fun export(action: suspend (List<ExportedImage>) -> String) = scope.launch {
         done = null
+        made?.let { done = action(it); return@launch }
         working = "Making the images…"
         try {
             val needed = summary.tiles.mapNotNull { it.media }.distinct().mapNotNull { material.byId[it] }
@@ -326,7 +342,9 @@ fun ExportSheet(
                 }.toMap()
             }
             val drawing = Drawing(summary, layout, look, pictures, material.gradeFor(summary), material.textColours(summary), measurer, font)
-            done = action(renderExport(material, drawing, kind, size))
+            val images = renderExport(material, drawing, kind, size)
+            made = images
+            done = action(images)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -357,11 +375,43 @@ fun ExportSheet(
             OutlinedButton(onClick = { exporter.copy(text); done = "Caption copied." }) { Text("Copy caption") }
             working?.let { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { CircularProgressIndicator(Modifier.padding(2.dp)); Text(it) } }
             done?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { export { images -> exporter.share(images, text); "Opened the share sheet. The caption is copied, ready to paste." .also { exporter.copy(text) } } }, enabled = working == null) {
-                    Text("Share…")
+            val idle = working == null
+            when (kind) {
+                ExportKind.Single -> InkButton("Post to Instagram", enabled = idle, modifier = Modifier.fillMaxWidth(), onClick = {
+                    export { images ->
+                        exporter.copy(text)
+                        exporter.postToInstagram(images.single(), text)
+                        "Opened Instagram with the picture. The caption is copied, ready to paste."
+                    }
+                })
+                // Saved, then picked in Instagram: handing it several pictures at once often drops all but one.
+                ExportKind.Carousel -> InkButton("Post to Instagram", enabled = idle, modifier = Modifier.fillMaxWidth(), onClick = {
+                    export { images ->
+                        exporter.save(images)
+                        exporter.copy(text)
+                        "Saved the ${images.size} pictures to your photos and copied the caption. " +
+                            if (exporter.openInstagram()) "In Instagram, start a new post, tap Select multiple, and pick the ${images.size} newest, summary first."
+                            else "Instagram isn't installed on this phone."
+                    }
+                })
+                ExportKind.Grid -> {
+                    val total = summary.tiles.size
+                    if (posted < total) InkButton("Post ${posted + 1} of $total to Instagram", enabled = idle, modifier = Modifier.fillMaxWidth(), onClick = {
+                        export { images ->
+                            exporter.copy(text)
+                            exporter.postToInstagram(images[posted], text)
+                            posted++
+                            if (posted < images.size) "Post $posted is open in Instagram, with the caption copied. Come back here for post ${posted + 1}."
+                            else "That was the last one: all ${images.size} posts are done."
+                        }
+                    }) else TextButton(onClick = { posted = 0 }) { Text("All $total posted · start again") }
                 }
-                OutlinedButton(onClick = { export { images -> exporter.save(images); "Saved ${images.size} to your photos, in the Postmarked album." } }, enabled = working == null) {
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { export { images -> exporter.copy(text); exporter.share(images, text); "Opened the share sheet. The caption is copied, ready to paste." } }, enabled = idle) {
+                    Text("Share elsewhere…")
+                }
+                OutlinedButton(onClick = { export { images -> exporter.save(images); "Saved ${images.size} to your photos, in the Postmarked album." } }, enabled = idle) {
                     Text("Save to photos")
                 }
             }

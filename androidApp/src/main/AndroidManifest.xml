@@ -17,6 +17,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Android 11+ only lets apps see other apps they name: needed to send pictures straight to Instagram. -->
+    <queries>
+        <package android:name="com.instagram.android" />
+    </queries>
+
     <application
         android:name=".PostmarkedApp"
         android:allowBackup="false"

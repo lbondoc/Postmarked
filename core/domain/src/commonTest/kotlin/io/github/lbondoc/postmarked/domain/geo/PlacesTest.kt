@@ -47,4 +47,17 @@ class PlacesTest {
     fun anErrorBodyThrowsInsteadOfLookingLikeNoResults() {
         assertFailsWith<IllegalArgumentException> { placesFromNominatim("""{"error": "rate limited"}""") }
     }
+
+    @Test
+    fun reverseLookupNamesTheTownOrTheArea() {
+        assertEquals("Carmel-by-the-Sea", nameFromReverse(
+            """{"name": "Carmel Point", "address": {"suburb": "Carmel Point", "town": "Carmel-by-the-Sea", "county": "Monterey County"}}"""
+        ))
+        // Out in the wilds there's no town, so the area's own name.
+        assertEquals("Los Padres National Forest", nameFromReverse(
+            """{"name": "Los Padres National Forest", "address": {"county": "Monterey County", "state": "California"}}"""
+        ))
+        assertEquals("Monterey County", nameFromReverse("""{"name": "", "address": {"county": "Monterey County"}}"""))
+        assertEquals(null, nameFromReverse("""{"error": "Unable to geocode"}"""))
+    }
 }
