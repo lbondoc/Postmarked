@@ -1015,6 +1015,40 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Deleting a note doesn't use last-write-wins: a delete always removes, even if a newer edit happened
     elsewhere.
 
+## J3 Notes in summaries and captions
+- Changes:
+  - `core/domain/.../summary/Caption.kt`:
+    - `caption(..., note = null)` quotes a day note under the stats line. It's a new optional last
+      parameter, so the existing call and the existing `aFullCaption` test are unchanged.
+    - `shortQuote(text, max)` wraps the note in curly quotes and cuts it at a word with "…" so it fits:
+      150 characters in captions, 80 in tiles.
+    - `noteToQuote(days, notes)` picks the single note among the days the summary's photos come from, and
+      none when there are several or none.
+
+    That's the task's "the caption generator can quote it".
+  - `CaptionTest.kt`: three new cases.
+    - A caption with a note has the quoted line in place (and only there).
+    - Long notes are cut at a word within the limit, and short ones are trimmed.
+    - The note rule: one day with a note, a day without one ignored, two notes give none, no note gives
+      none.
+  - `ui/SummaryScreens.kt`: `SummaryMaterial.notes` is loaded with the material. Offline there are no notes,
+    and edits still waiting in the outbox count (`notesToShow`). The tile sheet gets a "Day notes" row of chips
+    ("Day 2" …) that put the shortened note into the text tile; that's the "Day note" text tile. The 80-character
+    tile limit became the named `TILE_TEXT_MAX`, shared with the free-text field.
+  - `ui/Export.kt`: the generated caption passes `noteToQuote(days of the summary's photos, notes)`.
+- Approach: a day note becomes an ordinary text tile (its text, shortened), rather than a new tile type
+  linked to the note. That needs no change to saved summaries or the drawing code, and the tile keeps
+  showing even if the note is edited later. I considered a live link to the note and rejected it: a summary
+  is a finished picture people post, and it shouldn't change under them.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*CaptionTest*'` → `tests="8" skipped="0" failures="0"
+    errors="0"` (5 earlier + 3 new).
+  - All targets compile.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: **needs manual check:** in the summary editor, a text tile's "Day notes" chips, and the export
+  caption for a one-day summary showing the quote.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

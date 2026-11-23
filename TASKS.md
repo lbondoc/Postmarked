@@ -118,7 +118,7 @@ must pass as well.
   Check: `./supabase/tests/run.sh` (new `day_notes_test.sql`)
 - [x] **J2 Notes in the By day view.** Edit in place, going through the outbox when offline.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` (a by-day group carries its note)
-- [ ] **J3 Notes in summaries and captions.** Add a "Day note" text tile, and the caption generator can quote it.
+- [x] **J3 Notes in summaries and captions.** Add a "Day note" text tile, and the caption generator can quote it.
   Check: `./gradlew :core:domain:jvmTest --tests '*CaptionTest*'`
 
 ## Phase 4 — Summaries: presets, layouts, crop

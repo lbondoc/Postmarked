@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.domain.summary.noteToQuote
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -321,6 +322,8 @@ fun ExportSheet(
         places = material.trip.regions.map { it.label.substringBefore(',') },
         song = song?.let { SongCredit(it.title, it.artist) },
         colour = summary.colours.firstOrNull()?.takeIf { summary.mode == SummaryMode.Monochrome.name }?.let { colourName(Oklab.fromRgb(hexToRgb(it))) },
+        // The one day note among the days this summary's photos are from, if there is one.
+        note = noteToQuote(summary.tiles.mapNotNull { tile -> tile.media?.let { material.byId[it]?.takenOn } }.toSet(), material.notes),
     )
     var text by remember { mutableStateOf(generated()) }
     var working by remember { mutableStateOf<String?>(null) }
