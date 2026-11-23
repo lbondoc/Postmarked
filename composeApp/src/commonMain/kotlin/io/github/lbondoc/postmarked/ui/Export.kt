@@ -177,9 +177,7 @@ private fun DrawScope.whole(d: Drawing) {
     drawRect(borderColour)
     val border = theme.exportBorder * w
     // Adaptive layouts follow each photo's own shape, which the downloaded pictures tell exactly.
-    val arranged = d.layout.arrange(List(d.layout.slots.size) { i ->
-        d.summary.tiles.getOrNull(i)?.media?.let { d.pictures[it] }?.let { it.width.toDouble() / it.height }
-    })
+    val arranged = d.layout.arrange(tileAspects(d.layout, d.summary.tiles, d.pictures.mapValues { (_, p) -> p.width.toDouble() / p.height }))
     val canvas = fit(arranged.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
     drawRect(c.paper.color(), Offset(canvas.left.toFloat(), canvas.top.toFloat()), Size(canvas.width.toFloat(), canvas.height.toFloat()))
 

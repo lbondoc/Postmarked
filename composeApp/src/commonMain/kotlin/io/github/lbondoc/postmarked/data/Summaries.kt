@@ -6,6 +6,7 @@ import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.json.JsonObject
 import io.github.lbondoc.postmarked.domain.color.Adjustment
 import io.github.lbondoc.postmarked.domain.color.Filter
+import io.github.lbondoc.postmarked.domain.summary.CropRatio
 import io.github.lbondoc.postmarked.domain.color.Look
 import kotlin.time.Clock
 import kotlinx.serialization.SerialName
@@ -27,9 +28,14 @@ data class SummaryTile(
     val ownLook: Boolean = false,
 )
 
-/** Which part of a photo a tile shows: centred on ([x], [y]), fractions of the photo, [zoom] times closer. */
+/**
+ * Which part of a photo a tile shows: centred on ([x], [y]), fractions of the photo, [zoom] times closer. [ratio]
+ * is the tile's shape in adaptive layouts, saved by name (a [CropRatio]); missing means Original.
+ */
 @Serializable
-data class Crop(val x: Double = 0.5, val y: Double = 0.5, val zoom: Double = 1.0)
+data class Crop(val x: Double = 0.5, val y: Double = 0.5, val zoom: Double = 1.0, val ratio: String? = null) {
+    val cropRatio: CropRatio get() = CropRatio.named(ratio)
+}
 
 /**
  * A filter and adjustments as saved: names rather than the app's own types, so a name a newer

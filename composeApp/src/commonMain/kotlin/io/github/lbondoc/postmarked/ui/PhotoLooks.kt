@@ -1,5 +1,9 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.foundation.layout.FlowRow
+import io.github.lbondoc.postmarked.domain.summary.lockedRatio
+import io.github.lbondoc.postmarked.domain.summary.tileAspect
+import io.github.lbondoc.postmarked.domain.summary.CropRatio
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -189,6 +193,10 @@ fun EditPhotoScreen(
     thumbnail: String?,
     aspect: Float,
     startTab: PhotoTab,
+    /** In adaptive layouts the tile takes the chosen crop ratio; strict grids lock it to the tile's shape. */
+    adaptive: Boolean = false,
+    /** The photo's own width / height, for the Original ratio; null until known. */
+    photoAspect: Double? = null,
     gradeOf: (SummaryTile) -> FloatArray?,
     onDone: (SummaryTile) -> Unit,
     onCancel: () -> Unit,
@@ -217,7 +225,9 @@ fun EditPhotoScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Box(Modifier.fillMaxWidth().heightIn(max = 380.dp), contentAlignment = Alignment.Center) {
-                        Box(Modifier.aspectRatio(aspect)) {
+                        // Adaptive layouts: the frame is the chosen ratio (the layout reflows to it); strict grids: the tile.
+                        val frame = if (adaptive) tileAspect(draft.crop?.cropRatio ?: CropRatio.Original, photoAspect)?.toFloat() ?: aspect else aspect
+                        Box(Modifier.aspectRatio(frame)) {
                             CroppedPhoto(
                                 picture, draft.crop, if (comparing) null else matrixFilter(gradeOf(draft)),
                                 Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
@@ -252,6 +262,18 @@ fun EditPhotoScreen(
                         PhotoTab.Crop -> {
                             Text("Drag the photo to move it, pinch to zoom. The frame is the tile's shape.", style = MaterialTheme.typography.bodyMedium)
                             val crop = draft.crop ?: Crop()
+                            Text("Shape", style = MaterialTheme.typography.labelLarge)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (adaptive) {
+                                    for (ratio in CropRatio.entries) InkChip(ratio.label, crop.cropRatio == ratio, {
+                                        draft = draft.copy(crop = crop.copy(ratio = ratio.name.takeUnless { ratio == CropRatio.Original }))
+                                    })
+                                } else {
+                                    // The profile grid and fixed grids must line up, so only the tile's own shape is offered.
+                                    InkChip(lockedRatio(aspect.toDouble())?.label ?: "Tile", true, {})
+                                }
+                            }
+                            if (!adaptive) Text("This layout's tiles keep a fixed shape so they line up.", style = MaterialTheme.typography.bodySmall)
                             Text("Zoom ${(crop.zoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
                             Slider(
                                 value = crop.zoom.toFloat(), onValueChange = { draft = draft.copy(crop = crop.copy(zoom = it.toDouble())) },

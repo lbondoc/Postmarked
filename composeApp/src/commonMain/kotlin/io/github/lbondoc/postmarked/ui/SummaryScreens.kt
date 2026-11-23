@@ -474,6 +474,8 @@ fun SummaryEditorScreen(
                 tile, material.pictures[tile.media], material.thumbnails[tile.media],
                 aspect = (slot.w / slot.h * vm.layout.aspect).toFloat(),
                 startTab = tab,
+                adaptive = vm.layout.adaptive,
+                photoAspect = rememberPictureAspects(listOf(tile), material.pictures)[tile.media],
                 gradeOf = material.gradeFor(summary),
                 onDone = { vm.setTile(i, it); photoEditing = null },
                 onCancel = { photoEditing = null },
