@@ -845,6 +845,30 @@ BLOCKED, and nothing gets deployed from this sandbox.
   All 3 should appear in the gallery. A trip never opened online on this phone still can't be imported into
   offline, because its area is unknown.
 
+## L1 Live candidates
+- Changes:
+  - `core/domain/.../trip/LiveCandidates.kt` (new): `LiveItem(uri, addedMs, takenOn, location)` and
+    `liveCandidates(items, sinceMs, queuedUris, start, end, area)`. It keeps items added after the last run
+    that the existing `matchTrip` marks `Both` (in the dates and the area), and skips those already queued and
+    those with no location. The task asks for a pure function over "new MediaStore items since the last run"
+    that "the trip matcher marks as taken on this trip". It lives in `core/domain` with the matcher, so L2's
+    worker only maps MediaStore rows to `LiveItem`s.
+  - `LiveCandidatesTest.kt` (new), the task's check:
+    - Keeps a new in-trip item.
+    - Skips items before or after the dates, and elsewhere.
+    - Skips already-queued items, and items with no location.
+    - Only looks at items added after the last run (the `>` boundary).
+- Approach: "Taken on this trip" uses the same rule as the import screen's pre-ticked section (`TripMatch.Both`)
+  so live mode never adds something the import screen wouldn't have ticked. I considered including date-only
+  matches (no GPS) and rejected it: the task's check says to skip them, and adding photos automatically
+  should err on the side of leaving things out.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*LiveCandidatesTest*'` → `tests="5" skipped="0"
+    failures="0" errors="0"`. Also passes on `wasmJsNodeTest`.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups: none for L1. The worker, the switch and the notification are L2.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

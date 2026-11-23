@@ -99,7 +99,7 @@ must pass as well.
   doesn't.
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: queue 3 photos in airplane mode, reboot, turn on
   Wi-Fi, and all 3 appear in the gallery
-- [ ] **L1 Live candidates.** A pure function: for the new MediaStore items since the last run, return those the
+- [x] **L1 Live candidates.** A pure function: for the new MediaStore items since the last run, return those the
   trip matcher marks as taken on this trip.
   Check: `./gradlew :core:domain:jvmTest --tests '*LiveCandidatesTest*'` (it skips items outside the dates or area,
   items already queued, and items with no location)
