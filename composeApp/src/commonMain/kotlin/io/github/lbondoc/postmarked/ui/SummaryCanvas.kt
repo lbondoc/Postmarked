@@ -2,7 +2,17 @@ package io.github.lbondoc.postmarked.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
@@ -64,8 +74,13 @@ fun rgbColor(rgb: Int) = Color(0xFF000000 or (rgb.toLong() and 0xFFFFFF))
 
 /**
  * Draws a summary: [tiles] placed in [layout]'s slots on a paper-white canvas. [gradeFor] gives
- * a tile's colour-harmonize matrix (4 x 5, offsets 0..255), or null to show it untouched.
- * With [onSwap], long-press and drag a tile onto another to swap them; with [onTap], tap to edit.
+ * a tile's colour matrix (4 x 5, offsets 0..255), or null to show it untouched.
+ *
+ * Touch, when the callbacks are given: a tap opens a tile ([onTap]). Holding a tile selects it,
+ * and dragging on selects every tile in between, in slot order ([onSelect]); while some are
+ * selected, a tap adds or removes one. Holding a selected tile and dragging picks the selection up
+ * as a stack: dashed, numbered outlines show where each will land, letting go drops them there
+ * ([onMove]), and letting go outside the summary puts everything back.
  */
 @Composable
 fun SummaryCanvas(
@@ -77,64 +92,147 @@ fun SummaryCanvas(
     textColours: List<Int>,
     modifier: Modifier = Modifier,
     paper: Color = PAPER,
-    onSwap: ((Int, Int) -> Unit)? = null,
+    selected: Set<Int> = emptySet(),
+    onSelect: ((Set<Int>) -> Unit)? = null,
+    onMove: ((Set<Int>, Int) -> Unit)? = null,
     onTap: ((Int) -> Unit)? = null,
 ) {
-    val swap by rememberUpdatedState(onSwap)
-    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(layout.aspect.toFloat()).background(paper)) {
+    // The gesture below runs for as long as a finger is down; these let it see the latest values.
+    val tap by rememberUpdatedState(onTap)
+    val select by rememberUpdatedState(onSelect)
+    val move by rememberUpdatedState(onMove)
+    val chosen by rememberUpdatedState(selected)
+    var moving by remember { mutableStateOf(false) }
+    var finger by remember { mutableStateOf(Offset.Zero) }
+    // On the canvas itself, so it sees every touch whichever tile is under the finger.
+    val touch = if (onTap == null && onSelect == null) Modifier else Modifier.pointerInput(layout) {
+        fun slotAt(point: Offset) = slotAt(layout, point, size.width.toFloat(), size.height.toFloat())
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val start = slotAt(down.position) ?: return@awaitEachGesture
+            val held = awaitLongPressOrCancellation(down.id)
+            if (held == null) {
+                // Lifted before the long-press time: a tap, unless the finger slid (that was a scroll).
+                val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                if (up != null && !up.pressed && (up.position - down.position).getDistance() < viewConfiguration.touchSlop) {
+                    val now = chosen
+                    val pick = select
+                    if (now.isNotEmpty() && pick != null) pick(if (start in now) now - start else now + start) else tap?.invoke(start)
+                }
+                return@awaitEachGesture
+            }
+            val before = chosen
+            if (start in before && move != null) {
+                moving = true
+                finger = held.position
+                val lifted = drag(held.id) { change -> finger = change.position; change.consume() }
+                val target = slotAt(finger)
+                moving = false
+                if (lifted && target != null) move?.invoke(before, target)
+            } else {
+                select?.invoke(before + start)
+                drag(held.id) { change ->
+                    change.consume()
+                    slotAt(change.position)?.let { at -> select?.invoke(before + (minOf(start, at)..maxOf(start, at))) }
+                }
+            }
+        }
+    }
+    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(layout.aspect.toFloat()).background(paper).then(touch)) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
         val density = LocalDensity.current
-        var dragging by remember { mutableStateOf<Int?>(null) }
-        var drag by remember { mutableStateOf(Offset.Zero) }
-
-        fun slotAt(point: Offset) = layout.slots.indexOfFirst { s ->
-            point.x in (s.x * width).toFloat()..((s.x + s.w) * width).toFloat() && point.y in (s.y * height).toFloat()..((s.y + s.h) * height).toFloat()
-        }.takeIf { it >= 0 }
+        val hover = if (moving) slotAt(layout, finger, width, height) else null
+        val all = List(layout.slots.size) { tiles.getOrNull(it) ?: SummaryTile() }
+        // While moving, the summary shows where everything would end up.
+        val (shown, landing) = if (hover != null) moveTiles(all, selected, hover) else all to IntRange.EMPTY
+        val selecting = selected.isNotEmpty() && onSelect != null
 
         layout.slots.forEachIndexed { i, slot ->
-            val tile = tiles.getOrNull(i) ?: SummaryTile()
+            val tile = shown[i]
             // Layouts are fractions of the canvas; these are pixels.
             val left = (slot.x * width).toFloat()
             val top = (slot.y * height).toFloat()
             val w = (slot.w * width).toFloat()
             val h = (slot.h * height).toFloat()
+            val landed = i in landing
+            val on = i in selected
             Box(
                 Modifier
                     .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
                     .size(with(density) { w.toDp() }, with(density) { h.toDp() })
-                    .zIndex(if (dragging == i) 1f else 0f)
-                    // Outside graphicsLayer, so drag distances are measured on the unrotated canvas.
-                    .then(
-                        if (swap == null) Modifier else Modifier.pointerInput(layout, i) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { dragging = i; drag = Offset.Zero },
-                                onDrag = { change, amount -> change.consume(); drag += amount },
-                                onDragEnd = {
-                                    val target = slotAt(Offset(left + w / 2 + drag.x, top + h / 2 + drag.y))
-                                    if (target != null && target != i) swap?.invoke(i, target)
-                                    dragging = null
-                                    drag = Offset.Zero
-                                },
-                                onDragCancel = { dragging = null; drag = Offset.Zero },
-                            )
-                        },
-                    )
-                    .graphicsLayer {
-                        rotationZ = slot.rotation.toFloat()
-                        if (dragging == i) {
-                            translationX = drag.x
-                            translationY = drag.y
-                            scaleX = 1.06f
-                            scaleY = 1.06f
-                        }
-                    }
-                    .then(if (onTap == null) Modifier else Modifier.clickable(onClickLabel = "Change this tile") { onTap(i) })
-                    .semantics { contentDescription = describe(tile, media) },
+                    .graphicsLayer { rotationZ = slot.rotation.toFloat() }
+                    .semantics {
+                        contentDescription = describe(tile, media) + if (on) ", selected" else ""
+                        // The same choices for TalkBack, which can't hold and drag.
+                        if (selecting) onClick(if (on) "Unselect" else "Select") { onSelect?.invoke(if (on) selected - i else selected + i); true }
+                        else if (onTap != null) onClick("Change this tile") { onTap(i); true }
+                        if (onSelect != null && !selecting) onLongClick("Select") { onSelect(setOf(i)); true }
+                    },
             ) {
-                Framed(slot.frame) { TileContent(tile, media, pictures, gradeFor, textColours, w, density.density) }
+                Box(Modifier.fillMaxSize().alpha(if (landed || (moving && hover == null && on)) 0.35f else 1f)) {
+                    Framed(slot.frame) { TileContent(tile, media, pictures, gradeFor, textColours, w, density.density) }
+                }
+                if (landed) {
+                    Box(Modifier.fillMaxSize().drawBehind {
+                        val stroke = 3.dp.toPx()
+                        drawRect(SELECTED, style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(stroke * 3, stroke * 2))))
+                    })
+                    Text(
+                        "${i - landing.first + 1}",
+                        Modifier.align(Alignment.Center).background(SELECTED, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = Color.White, fontWeight = FontWeight.Bold,
+                    )
+                } else if (selecting && !moving) {
+                    if (on) Box(Modifier.fillMaxSize().border(3.dp, SELECTED))
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp)
+                            .background(if (on) SELECTED else Color(0x40231F1C), CircleShape).border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { if (on) Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                }
             }
         }
+        if (moving) Stack(selected.sorted().map { all[it] }, finger, media, pictures, gradeFor, textColours)
+    }
+}
+
+/** Which slot is under [point] (in pixels on a [width] x [height] canvas), if any. */
+private fun slotAt(layout: Layout, point: Offset, width: Float, height: Float) = layout.slots.indexOfFirst { s ->
+    point.x in (s.x * width).toFloat()..((s.x + s.w) * width).toFloat() && point.y in (s.y * height).toFloat()..((s.y + s.h) * height).toFloat()
+}.takeIf { it >= 0 }
+
+/** The red of selection rings, ticks and landing outlines: the app's postal red. */
+private val SELECTED = Color(0xFFB5452F)
+
+/** The picked-up tiles folded into a little pile under the finger, with how many there are. */
+@Composable
+private fun Stack(
+    tiles: List<SummaryTile>,
+    at: Offset,
+    media: Map<String, TripMedia>,
+    pictures: Map<String, String>,
+    gradeFor: (SummaryTile) -> FloatArray?,
+    textColours: List<Int>,
+) {
+    val density = LocalDensity.current
+    val side = 84.dp
+    val half = with(density) { (side / 2).toPx() }
+    // Up and to the left of the finger, so the finger doesn't hide it.
+    Box(Modifier.offset { IntOffset((at.x - half * 1.6f).roundToInt(), (at.y - half * 1.8f).roundToInt()) }.zIndex(2f)) {
+        tiles.take(3).reversed().forEachIndexed { layer, tile ->
+            val depth = minOf(tiles.size, 3) - 1 - layer // 0 is the top card
+            Box(
+                Modifier.size(side).graphicsLayer { rotationZ = listOf(0f, 5f, -7f)[depth] }
+                    .shadow(6.dp).background(Color.White).padding(4.dp),
+            ) { TileContent(tile, media, pictures, gradeFor, textColours, with(density) { side.toPx() }, density.density) }
+        }
+        if (tiles.size > 1) Text(
+            "${tiles.size}",
+            Modifier.align(Alignment.TopEnd).offset(10.dp, (-10).dp).background(SELECTED, CircleShape).border(2.dp, Color.White, CircleShape)
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            color = Color.White, fontWeight = FontWeight.Bold,
+        )
     }
 }
 

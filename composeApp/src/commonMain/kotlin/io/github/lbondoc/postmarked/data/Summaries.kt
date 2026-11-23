@@ -1,7 +1,9 @@
 package io.github.lbondoc.postmarked.data
 
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.serialization.json.JsonObject
 import io.github.lbondoc.postmarked.domain.color.Adjustment
 import io.github.lbondoc.postmarked.domain.color.Filter
 import io.github.lbondoc.postmarked.domain.color.Look
@@ -86,6 +88,10 @@ private class SummaryUpdate(
 object Summaries {
     suspend fun ofTrip(tripId: String): List<Summary> =
         supabase.from("summaries").select { filter { eq("trip_id", tripId) }; order("updated_at", Order.DESCENDING) }.decodeList()
+
+    /** Whether [userId] has made a summary on any trip they can see. */
+    suspend fun anyBy(userId: String): Boolean =
+        supabase.from("summaries").select(Columns.list("id")) { filter { eq("created_by", userId) }; limit(1) }.decodeList<JsonObject>().isNotEmpty()
 
     suspend fun get(id: String): Summary =
         supabase.from("summaries").select { filter { eq("id", id) } }.decodeSingle()

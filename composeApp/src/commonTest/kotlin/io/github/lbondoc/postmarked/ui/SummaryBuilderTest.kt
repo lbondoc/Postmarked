@@ -75,4 +75,15 @@ class SummaryBuilderTest {
         val tiles = listOf(SummaryTile(media = "a"), SummaryTile(text = "b"), SummaryTile(media = "c"))
         assertEquals(listOf("c", "text:b", "a"), ids(swapTiles(tiles, 0, 2)))
     }
+
+    @Test
+    fun movingSeveralKeepsTheirOrderAndShiftsTheRest() {
+        val tiles = listOf("a", "b", "c", "d", "e", "f", "g", "h", "i")
+        // Tiles 3, 7 and 9 dropped on slot 4: they fill 4, 5, 6 and the others close up around them.
+        assertEquals(listOf("a", "b", "d", "c", "g", "i", "e", "f", "h") to (3..5), moveTiles(tiles, listOf(8, 2, 6), 3))
+        // Dropped on the last slot, the group starts early enough to fit.
+        assertEquals(listOf("b", "c", "d", "e", "f", "g", "a", "h", "i") to (6..8), moveTiles(tiles, listOf(0, 7, 8), 8))
+        // One tile is an ordinary move.
+        assertEquals(listOf("b", "a", "c", "d", "e", "f", "g", "h", "i") to (1..1), moveTiles(tiles, listOf(0), 1))
+    }
 }

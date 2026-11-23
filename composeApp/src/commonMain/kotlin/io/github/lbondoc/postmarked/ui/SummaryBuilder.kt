@@ -72,3 +72,15 @@ fun fillManually(layout: Layout, current: List<SummaryTile>, picked: List<String
 /** Swaps the tiles in two slots. */
 fun swapTiles(tiles: List<SummaryTile>, a: Int, b: Int): List<SummaryTile> =
     tiles.toMutableList().also { val t = it[a]; it[a] = it[b]; it[b] = t }
+
+/**
+ * Moves the tiles at [moving] so they sit side by side starting at slot [target], keeping their
+ * order; the other tiles keep theirs and slide along to make room. Near the end the group starts
+ * earlier so all of it fits. Returns the new tiles and the slots the moved ones landed in.
+ */
+fun <T> moveTiles(tiles: List<T>, moving: Collection<Int>, target: Int): Pair<List<T>, IntRange> {
+    val picked = moving.filter { it in tiles.indices }.distinct().sorted()
+    val rest = tiles.filterIndexed { i, _ -> i !in picked }
+    val start = target.coerceIn(0, tiles.size - picked.size)
+    return rest.take(start) + picked.map { tiles[it] } + rest.drop(start) to (start until start + picked.size)
+}

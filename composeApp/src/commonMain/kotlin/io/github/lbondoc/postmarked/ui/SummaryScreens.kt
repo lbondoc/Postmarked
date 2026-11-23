@@ -215,6 +215,8 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         private set
     var songs by mutableStateOf<List<Song>>(emptyList())
         private set
+    /** True while someone makes their very first summary: they're walked through it a step at a time. */
+    var guided by mutableStateOf(false)
 
     val layout get() = Layout.entries.firstOrNull { it.name == summary?.layout } ?: Layout.Grid3x3
     val mode get() = SummaryMode.entries.firstOrNull { it.name == summary?.mode } ?: SummaryMode.Manual
@@ -223,6 +225,7 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         val m = loadMaterial(tripId)
         material = m
         summary = summaryId?.let { Summaries.get(it) } ?: build(m, SummaryMode.Monochrome, Layout.Grid3x3, focus = null)
+        guided = summaryId == null && myUserId?.let { !Summaries.anyBy(it) } == true
         songs = Songs.ofTrip(tripId)
         // Miles need the road route, which can be slow or unavailable; the summary works without them.
         miles = try {
@@ -285,6 +288,19 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
     }
     fun pick(ids: List<String>) = change { it.copy(tiles = fillManually(layout, it.tiles, ids), mode = SummaryMode.Manual.name) }
 
+    /** Moves the [moving] tiles side by side from slot [target]; returns where they landed, so they stay selected. */
+    fun move(moving: Set<Int>, target: Int): Set<Int> {
+        val s = summary ?: return emptySet()
+        val (tiles, landed) = moveTiles(List(layout.slots.size) { s.tiles.getOrNull(it) ?: SummaryTile() }, moving, target)
+        summary = s.copy(tiles = tiles, mode = SummaryMode.Manual.name)
+        return landed.toSet()
+    }
+
+    /** Gives each tile in [indices] its own [look], replacing any it had. */
+    fun setLooks(indices: Collection<Int>, look: Look) = change { s ->
+        s.copy(tiles = s.tiles.mapIndexed { i, t -> if (i in indices) t.copy(look = look.takeUnless { it.isPlain }?.toData()) else t }, mode = SummaryMode.Manual.name)
+    }
+
     fun save(onSaved: () -> Unit) = run {
         summary = Summaries.save(summary ?: return@run)
         onSaved()
@@ -312,6 +328,9 @@ fun SummaryEditorScreen(
     var tab by remember { mutableStateOf(EditorTab.Style) }
     var editing by remember { mutableStateOf<Int?>(null) }
     var photoEditing by remember { mutableStateOf<Pair<Int, PhotoTab>?>(null) }
+    // Tiles chosen by holding them; Filter and Adjust then change only these.
+    var selected by remember { mutableStateOf(emptySet<Int>()) }
+    LaunchedEffect(vm.layout) { selected = emptySet() } // slot numbers mean something else in another layout
     var picking by remember { mutableStateOf<((List<String>) -> Unit)?>(null) }
     var pickMany by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -324,7 +343,8 @@ fun SummaryEditorScreen(
     val canEdit = role?.canEdit == true && (summary?.id == null || summary.createdBy == myUserId || role == TripRole.Owner)
     val chooseMine = { pickMany = true; picking = vm::pick }
 
-    Scaffold(
+    if (vm.guided && material != null && summary != null) GuidedSummary(vm, material, summary, onClose = onBack, onChooseMine = chooseMine)
+    else Scaffold(
         topBar = {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text(if (canEdit) "Cancel" else "Back") }
@@ -358,30 +378,41 @@ fun SummaryEditorScreen(
                 SummaryCanvas(
                     vm.layout, summary.tiles, material.byId, material.pictures, material.gradeFor(summary), material.textColours(summary),
                     paper = paper,
-                    onSwap = if (canEdit) vm::swap else null,
+                    selected = selected,
+                    onSelect = if (canEdit) { chosen -> selected = chosen } else null,
+                    onMove = if (canEdit) { moving, target -> selected = vm.move(moving, target) } else null,
                     onTap = if (canEdit) { index -> editing = index } else null,
                 )
             }
             if (!canEdit) return@Column
-            Text(
-                "Tap a tile to change it · hold and drag one onto another to swap them",
-                Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            SelectionBar(
+                selected, vm.layout.slots.size,
+                onEditPhoto = selected.singleOrNull()?.takeIf { summary.tiles.getOrNull(it)?.media != null }?.let { i -> { photoEditing = i to PhotoTab.Filter } },
+                onChange = { selected = it },
             )
             PaperCard(Modifier.fillMaxWidth()) {
                 when (tab) {
                     EditorTab.Style -> StylePanel(vm.mode, summary, material) { mode -> if (mode == SummaryMode.Manual) chooseMine() else vm.setMode(mode) }
                     EditorTab.Colour -> ColourPanel(vm.mode, summary, material, vm::setFocus)
                     EditorTab.Layout -> LayoutPanel(vm.layout, vm::setLayout)
-                    EditorTab.Filter -> {
-                        val look = summary.look?.toLook() ?: Look()
-                        // The previews show the summary's first photo, drawn as the summary would draw it.
-                        val sample = summary.tiles.firstOrNull { it.media != null }
-                        FilterStrip("Filter · all photos", look, sample?.media?.let { material.thumbnails[it] }, { f ->
-                            sample?.let { material.gradeFor(summary.copy(look = look.copy(filter = f).toData()))(it) }
-                        }, vm::setLook)
-                    }
-                    EditorTab.Adjust -> {
+                    EditorTab.Filter, EditorTab.Adjust -> if (selected.isNotEmpty()) {
+                        val photos = selected.filter { summary.tiles.getOrNull(it)?.media != null }.sorted()
+                        if (photos.isEmpty()) Text("The selected tiles have no photos to filter or adjust.", style = MaterialTheme.typography.bodyMedium)
+                        else {
+                            // Shows the first chosen photo's settings; a change applies to every chosen photo.
+                            val first = summary.tiles[photos.first()]
+                            val look = first.look?.toLook() ?: Look()
+                            val scope = if (photos.size == 1) "1 selected photo" else "${photos.size} selected photos"
+                            val setLook = { l: Look -> vm.setLooks(photos, l) }
+                            if (tab == EditorTab.Filter) FilterStrip("Filter · $scope", look, material.thumbnails[first.media], { f ->
+                                material.gradeFor(summary)(first.copy(look = look.copy(filter = f).toData()))
+                            }, setLook)
+                            else ToolPicker("Adjust · $scope", lookTools(look, Adjustment.entries - Adjustment.Tint, setLook)) { setLook(look.copy(adjust = emptyMap())) }
+                            Text("These add to the whole summary's look. The other tiles stay as they are.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else if (tab == EditorTab.Filter) {
+                        WholeSummaryFilter(summary, material, vm::setLook)
+                    } else {
                         val look = summary.look?.toLook() ?: Look()
                         val tools = listOf(Tool("Match", 0.0, summary.harmonize, vm::setHarmonize)) +
                             lookTools(look, Adjustment.entries - Adjustment.Tint, vm::setLook)
@@ -468,10 +499,48 @@ fun SummaryEditorScreen(
     )
 }
 
+/**
+ * Under the summary: how to select when nothing is, or how many are selected and what to do
+ * with them. [onEditPhoto] is there when exactly one photo is selected.
+ */
+@Composable
+private fun SelectionBar(selected: Set<Int>, slots: Int, onEditPhoto: (() -> Unit)?, onChange: (Set<Int>) -> Unit) {
+    if (selected.isEmpty()) {
+        Text(
+            "Tap a tile to change it · hold to select · hold and drag across to select several",
+            Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${selected.size} selected", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            onEditPhoto?.let { TextButton(onClick = it) { Text("Edit photo") } }
+            if (selected.size < slots) TextButton(onClick = { onChange((0 until slots).toSet()) }) { Text("Select all") }
+            TextButton(onClick = { onChange(emptySet()) }) { Text("Clear") }
+        }
+        Text(
+            "Hold a selected tile and drag to move them together",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 // ---------- The editor's panels, one per tab ----------
 
+/** The filter for every photo; the previews show the summary's first photo, drawn as the summary would draw it. */
 @Composable
-private fun StylePanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (SummaryMode) -> Unit) {
+internal fun WholeSummaryFilter(summary: Summary, material: SummaryMaterial, onChange: (Look) -> Unit) {
+    val look = summary.look?.toLook() ?: Look()
+    val sample = summary.tiles.firstOrNull { it.media != null }
+    FilterStrip("Filter · all photos", look, sample?.media?.let { material.thumbnails[it] }, { f ->
+        sample?.let { material.gradeFor(summary.copy(look = look.copy(filter = f).toData()))(it) }
+    }, onChange)
+}
+
+@Composable
+internal fun StylePanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (SummaryMode) -> Unit) {
     SectionLabel("Style")
     val first = summary.colours.firstOrNull()?.let { rgbColor(hexToRgb(it)) } ?: MaterialTheme.colorScheme.outlineVariant
     val palette = material.palette.map { rgbColor(it.rgb) }
@@ -519,7 +588,7 @@ private fun Modifier.dashedBorder(colour: Color) = drawBehind {
 }
 
 @Composable
-private fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (Oklab) -> Unit) {
+internal fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (Oklab) -> Unit) {
     // How many photos are mostly each colour: what a one-colour summary can be built from.
     val matching = remember(material) {
         material.palette.associate { swatch -> rgbToHex(swatch.rgb) to material.candidates.count { share(it.swatches, swatch.color) >= MONOCHROME_SHARE } }
@@ -543,7 +612,7 @@ private fun ColourPanel(mode: SummaryMode, summary: Summary, material: SummaryMa
 }
 
 @Composable
-private fun LayoutPanel(chosen: Layout, onChoose: (Layout) -> Unit) {
+internal fun LayoutPanel(chosen: Layout, onChoose: (Layout) -> Unit) {
     SectionLabel("Layout")
     Row(Modifier.horizontalScroll(rememberScrollState()).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         for (layout in Layout.entries) {
