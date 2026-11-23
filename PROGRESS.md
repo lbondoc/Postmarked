@@ -982,6 +982,39 @@ BLOCKED, and nothing gets deployed from this sandbox.
 - Follow-ups: **needs manual step (owner):** run the migration in the Supabase SQL editor. If a trip's dates
   are later shortened, notes on days now outside them stay until edited; the trigger checks only on writes.
 
+## J2 Notes in the By day view
+- Changes:
+  - `data/DayNotes.kt` (new): `DayNote` (day, body, updated_at), `DayNotes.ofTrip`, and pure
+    `notesToShow(saved, outbox, trip)`. It lays queued outbox edits over the saved notes (a blank edit hides
+    the note), so an offline edit shows at once, which is "going through the outbox when offline".
+  - `ui/Gallery.kt`: `Section` gains `day` and `note`. `gallerySections(..., notes)` attaches each day's note to
+    its By-day group. That's the task's check ("a by-day group carries its note").
+  - `ui/GalleryFilters.kt` `gallery()`: By-day headers show the note, "Waiting to send" while an edit is
+    queued, and "Add a note" or "Edit note" for owners and editors (SPEC: "editors can edit in place").
+  - `ui/TripScreen.kt`: the view model loads notes with the media (offline from the snapshot), and `saveNote`
+    queues an `OutboxEntry.DayNote` with the current time. There's an edit dialog, and the outbox list is
+    collected and passed to the gallery so waiting notes appear and update.
+  - `data/TripCache.kt`: `TripSnapshot.notes`, the O1 follow-up "and day notes".
+  - `data/Outbox.kt`: a blank note is sent as a delete rather than an empty row.
+  - `GalleryTest.kt`: two new cases.
+    - A By-day group carries its note and its day, and the All view has none.
+    - Queued edits show over saved ones: the replaced text, a cleared day, and another trip's edit ignored.
+- Approach: notes travel with the gallery's sections rather than as a separate UI lookup, so the pure
+  `gallerySections` (already tested) decides where they appear. I considered a separate list of notes above
+  the gallery and rejected it: SPEC puts them "at the top of each day".
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` → `tests="10" skipped="0"
+    failures="0" errors="0"` (8 earlier + 2 new).
+  - All targets compile.
+  - Gate (rerun after the blank-note change): Gradle unit tests + APK + `compileKotlinWasmJs` →
+    `BUILD SUCCESSFUL`; APK resources found; deno `6 passed | 0 failed`; `database tests passed`; web build +
+    smoke → passed.
+- Follow-ups:
+  - **Needs manual check:** write a note in airplane mode, see "Waiting to send", go online, and the note
+    appears for others.
+  - Deleting a note doesn't use last-write-wins: a delete always removes, even if a newer edit happened
+    elsewhere.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

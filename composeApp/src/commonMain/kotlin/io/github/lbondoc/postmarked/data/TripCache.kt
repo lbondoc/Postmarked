@@ -31,6 +31,7 @@ data class TripSnapshot(
     val media: List<TripMedia> = emptyList(),
     /** Expired after an hour, but the image cache is keyed by Storage path (F4), so cached thumbnails still show. */
     val thumbnails: Map<String, String> = emptyMap(),
+    val notes: List<DayNote> = emptyList(),
 )
 
 /** A load's result, and whether it came from the saved copy because the network failed. */

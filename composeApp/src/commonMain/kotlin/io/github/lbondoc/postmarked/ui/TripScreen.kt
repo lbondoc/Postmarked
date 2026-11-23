@@ -1,5 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.material3.OutlinedTextField
+import io.github.lbondoc.postmarked.data.notesToShow
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.todayIn
 import kotlinx.datetime.TimeZone
 import kotlin.time.Clock
@@ -74,7 +77,10 @@ import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.PhotoSaver
 import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.DayNote
+import io.github.lbondoc.postmarked.data.DayNotes
 import io.github.lbondoc.postmarked.data.LastOpened
+import io.github.lbondoc.postmarked.data.OutboxEntry
 import io.github.lbondoc.postmarked.data.TripCache
 import io.github.lbondoc.postmarked.data.newFromFriends
 import io.github.lbondoc.postmarked.data.TripSnapshot
@@ -101,6 +107,10 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     // Kept here, not in the screen, so they survive rotating the phone.
     var view by mutableStateOf(GalleryView.All)
     var filter by mutableStateOf(GalleryFilter())
+    /** The day notes on the server (edits still in the outbox are laid over them when shown). */
+    var savedNotes by mutableStateOf<List<DayNote>>(emptyList())
+        private set
+
     /** Selected gallery tiles, by cover id. Empty when not selecting. */
     var selected by mutableStateOf(emptySet<String>())
 
@@ -146,6 +156,11 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         )
         val (items, thumbs) = loaded.value
         thumbnails = thumbs
+        savedNotes = if (loaded.offline) cache.trip(tripId)?.notes.orEmpty() else try {
+            DayNotes.ofTrip(tripId).also { notes -> cache.trip(tripId)?.let { cache.saveTrip(it.copy(notes = notes)) } }
+        } catch (e: Exception) {
+            if (isOffline(e)) cache.trip(tripId)?.notes.orEmpty() else throw e
+        }
         if (loaded.offline) offline = true
         if (places.isEmpty() && !loaded.offline) places = Trips.places(tripId)
         media = items
@@ -156,6 +171,11 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
             val filled = Media.fillPalettes(tripId, missing)
             media = media.map { filled[it.id] ?: it }
         }
+    }
+
+    /** Saves a day's note through the outbox: shown at once, sent now or once back online; blank removes it. */
+    fun saveNote(day: LocalDate, body: String) = run {
+        Outbox.add(OutboxEntry.DayNote(Outbox.newId(), tripId, day, body.trim(), Outbox.now()))
     }
 
     /** Owner and editors only: the photo shown for this trip on the trip list. */
@@ -212,10 +232,12 @@ fun TripScreen(
     var confirmingExit by remember { mutableStateOf(false) }
     var filtering by remember { mutableStateOf(false) }
     var confirmingDeleteSelected by remember { mutableStateOf(false) }
+    var editingNote by remember { mutableStateOf<LocalDate?>(null) }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val saving = remember { SaveJob(scope) }
     val selectedItems = vm.media.filter { it.id in vm.selected }
+    val outbox by Outbox.entries.collectAsState() // day notes waiting to send
     val uploads by cameraRoll.uploads.collectAsState()
     val uploadProgress by cameraRoll.uploadProgress.collectAsState()
     val mobileData by cameraRoll.mobileData.collectAsState()
@@ -357,12 +379,28 @@ fun TripScreen(
                     }
                 }
             }
-            if (trip != null) gallery(tripId, trip.startDate, vm, stopNames, onFilter = { filtering = true }) { list, index -> viewing = list to index }
+            if (trip != null) gallery(tripId, trip.startDate, vm, stopNames, onFilter = { filtering = true }, outbox = outbox, onEditNote = { editingNote = it }) { list, index -> viewing = list to index }
         }
     }
 
     if (filtering && trip != null) {
         FilterSheet(vm.media, vm.places, trip.startDate, vm.filter, onChange = { vm.filter = it }, onClose = { filtering = false })
+    }
+
+    editingNote?.let { day ->
+        var draft by remember(day) { mutableStateOf(notesToShow(vm.savedNotes, outbox, tripId)[day].orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { editingNote = null },
+            title = { Text("Note for ${day.format(DAY)}") },
+            text = {
+                OutlinedTextField(
+                    value = draft, onValueChange = { draft = it.take(4000) }, minLines = 3,
+                    label = { Text("What happened this day") }, modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.saveNote(day, draft); editingNote = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { editingNote = null }) { Text("Cancel") } },
+        )
     }
 
     if (confirmingDeleteSelected) {

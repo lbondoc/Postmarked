@@ -1,5 +1,7 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.notesToShow
+import io.github.lbondoc.postmarked.data.OutboxEntry
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -103,10 +105,16 @@ internal fun LazyGridScope.gallery(
     vm: TripViewModel,
     stopNames: Map<Int, String>,
     onFilter: () -> Unit,
+    /** Writes waiting to send, for day notes edited offline. */
+    outbox: List<OutboxEntry>,
+    onEditNote: (LocalDate) -> Unit,
     onOpen: (List<TripMedia>, Int) -> Unit,
 ) {
+    val notes = notesToShow(vm.savedNotes, outbox, tripId)
+    val waitingDays = outbox.filterIsInstance<OutboxEntry.DayNote>().filter { it.tripId == tripId }.map { it.day }.toSet()
+    val canEdit = vm.trip?.myRole?.canEdit == true
     val visible = filterMedia(vm.media, vm.filter, vm.places)
-    val sections = gallerySections(visible, vm.media, vm.view, tripStart, stopNames)
+    val sections = gallerySections(visible, vm.media, vm.view, tripStart, stopNames, notes)
     // The viewer swipes through everything shown, in order, including the shots folded behind each tile.
     val ordered = sections.flatMap { section -> section.tiles.flatMap { it.all } }
 
@@ -117,7 +125,16 @@ internal fun LazyGridScope.gallery(
     for (section in sections) {
         section.title?.let { title ->
             item(span = { GridItemSpan(maxLineSpan) }, key = "section:$title") {
-                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp, top = 12.dp))
+                Column(Modifier.padding(start = 8.dp, top = 12.dp, end = 8.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    // By day: the day's note, editable in place by the owner and editors (SPEC §6).
+                    val day = section.day
+                    if (day != null) {
+                        section.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        if (day in waitingDays) Text("Waiting to send", style = MaterialTheme.typography.bodySmall)
+                        if (canEdit) TextButton(onClick = { onEditNote(day) }) { Text(if (section.note == null) "Add a note" else "Edit note") }
+                    }
+                }
             }
         }
         items(section.tiles, key = { it.cover.id }) { tile ->

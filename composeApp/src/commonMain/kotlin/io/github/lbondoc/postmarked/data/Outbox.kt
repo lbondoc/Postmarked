@@ -125,6 +125,10 @@ object Outbox {
         } catch (e: PostgrestRestException) {
             if (e.code != "23505") throw e else Unit // 23505: that reaction is already there, which is what was wanted
         }
+        // A blank note removes the day's note.
+        is OutboxEntry.DayNote if entry.body.isBlank() -> supabase.from("day_notes").delete {
+            filter { eq("trip_id", entry.tripId); eq("day", entry.day.toString()) }
+        }.let { }
         // Upsert by (trip, day). The database keeps whichever edit is newest (day_notes migration).
         is OutboxEntry.DayNote -> supabase.from("day_notes").upsert(buildJsonObject {
             put("trip_id", entry.tripId)

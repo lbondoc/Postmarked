@@ -60,6 +60,30 @@ class GalleryTest {
     }
 
     @Test
+    fun aByDayGroupCarriesItsNote() {
+        val notes = mapOf(LocalDate(2026, 10, 4) to "Desert heat, then a sunset at Joshua Tree")
+        val sections = gallerySections(items, items, GalleryView.Days, LocalDate(2026, 10, 3), notes = notes)
+        assertEquals(listOf(null, "Desert heat, then a sunset at Joshua Tree"), sections.map { it.note })
+        assertEquals(listOf(LocalDate(2026, 10, 3), LocalDate(2026, 10, 4)), sections.map { it.day })
+        // Other views have no day groups, so no notes.
+        assertEquals(listOf(null), gallerySections(items, items, GalleryView.All, LocalDate(2026, 10, 3), notes = notes).map { it.note })
+    }
+
+    @Test
+    fun queuedNoteEditsShowOverSavedOnes() {
+        val saved = listOf(
+            io.github.lbondoc.postmarked.data.DayNote(LocalDate(2026, 10, 3), "Fog", "2026-10-03T20:00:00Z"),
+            io.github.lbondoc.postmarked.data.DayNote(LocalDate(2026, 10, 4), "Heat", "2026-10-04T20:00:00Z"),
+        )
+        val outbox = listOf(
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("1", "t1", LocalDate(2026, 10, 3), "Fog, then sun", 1),
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("2", "t1", LocalDate(2026, 10, 4), "", 2), // cleared
+            io.github.lbondoc.postmarked.data.OutboxEntry.DayNote("3", "other-trip", LocalDate(2026, 10, 5), "Not ours", 3),
+        )
+        assertEquals(mapOf(LocalDate(2026, 10, 3) to "Fog, then sun"), io.github.lbondoc.postmarked.data.notesToShow(saved, outbox, "t1"))
+    }
+
+    @Test
     fun stopsComeFromTheRouteAndUnlocatedItemsGoLast() {
         val sections = gallerySections(items, items, GalleryView.Stops, LocalDate(2026, 10, 3))
         assertEquals(listOf("Stop 1 · 3", "Stop 2 · 1", "No location · 1"), sections.map { it.title })
