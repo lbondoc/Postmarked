@@ -22,7 +22,9 @@ class MainActivity : ComponentActivity() {
         val cameraRoll = AndroidCameraRoll(this) // before setContent: it registers for permission results
         // Shown once: the file is removed as soon as it is read.
         val lastCrash = crashReport(this).takeIf { it.exists() }?.let { file -> file.readText().also { file.delete() } }
-        setContent { App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, lastCrash = lastCrash) }
+        setContent {
+            App(onShare = ::share, scanQr = ::scanQr, cameraRoll = cameraRoll, videoPlayer = { url, modifier -> VideoPlayer(url, modifier) }, lastCrash = lastCrash)
+        }
     }
 
     /** Called instead of onCreate when an invite link is tapped while the app is already open. */

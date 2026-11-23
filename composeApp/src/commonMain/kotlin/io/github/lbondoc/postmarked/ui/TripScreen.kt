@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
@@ -54,6 +59,10 @@ import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.TripRole
+import io.github.lbondoc.postmarked.data.places
+import io.github.lbondoc.postmarked.domain.trip.TripArea
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.daysUntil
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
 import io.github.lbondoc.postmarked.data.inviteLink
@@ -65,6 +74,12 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         private set
     var thumbnails by mutableStateOf<Map<String, String>>(emptyMap())
         private set
+    var places by mutableStateOf<Map<String, TripArea>>(emptyMap())
+        private set
+
+    // Kept here, not in the screen, so they survive rotating the phone.
+    var view by mutableStateOf(GalleryView.All)
+    var filter by mutableStateOf(GalleryFilter())
 
     /** Set while an invite is on screen. It cannot be fetched again later, only replaced. */
     var inviteToken by mutableStateOf<String?>(null)
@@ -75,6 +90,7 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     fun loadMedia() = run {
         val items = Media.ofTrip(tripId)
         thumbnails = Media.thumbnailUrls(tripId, items.map { it.id })
+        if (places.isEmpty()) places = Trips.places(tripId)
         media = items
     }
 
@@ -100,9 +116,12 @@ fun TripScreen(
     onAddMedia: () -> Unit,
     onOpenMap: () -> Unit,
     onShare: (String) -> Unit,
+    videoPlayer: VideoPlayer,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
 ) {
     var choosingRole by remember { mutableStateOf(false) }
+    /** The list the viewer swipes through, and where it opened. */
+    var viewing by remember { mutableStateOf<Pair<List<TripMedia>, Int>?>(null) }
     var confirmingExit by remember { mutableStateOf(false) }
     val uploads by cameraRoll.uploads.collectAsState()
     val uploadProgress by cameraRoll.uploadProgress.collectAsState()
@@ -178,13 +197,25 @@ fun TripScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    Text("Photos and videos (${vm.media.size})", style = MaterialTheme.typography.titleMedium)
                 }
             }
-            items(vm.media, key = { it.id }) { item ->
-                Thumbnail(tripId, item.id, item.kind, vm.thumbnails[item.id])
-            }
+            if (trip != null) gallery(tripId, trip.startDate, vm) { list, index -> viewing = list to index }
         }
+    }
+
+    viewing?.let { (list, index) ->
+        Viewer(
+            tripId = tripId,
+            items = list,
+            start = index,
+            thumbnails = vm.thumbnails,
+            videoPlayer = videoPlayer,
+            onDeleted = {
+                viewing = null
+                vm.loadMedia()
+            },
+            onClose = { viewing = null },
+        )
     }
 
     if (choosingRole) {
@@ -243,6 +274,81 @@ fun TripScreen(
             },
             dismissButton = { TextButton(onClick = { confirmingExit = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** View switcher, filters and the grouped grid, as items of the trip page's grid. */
+private fun LazyGridScope.gallery(
+    tripId: String,
+    tripStart: LocalDate,
+    vm: TripViewModel,
+    onOpen: (List<TripMedia>, Int) -> Unit,
+) {
+    val visible = filterMedia(vm.media, vm.filter, vm.places)
+    val sections = gallerySections(visible, vm.media, vm.view, tripStart)
+    // The viewer swipes through everything shown, in order, including the shots folded behind each tile.
+    val ordered = sections.flatMap { section -> section.tiles.flatMap { it.all } }
+
+    item(span = { GridItemSpan(maxLineSpan) }) {
+        Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "Photos and videos (" + (if (vm.filter.isEmpty) "${vm.media.size}" else "${visible.size} of ${vm.media.size}") + ")",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Chips("View", GalleryView.entries.map { it to it.label }, setOf(vm.view)) { chosen ->
+                (chosen - vm.view).firstOrNull()?.let { vm.view = it } // one view at a time
+            }
+            val f = vm.filter
+            Chips("Type", listOf(MediaKind.Photo to "Photos", MediaKind.Video to "Videos"), f.kinds) { vm.filter = f.copy(kinds = it) }
+            Chips("Who", vm.media.distinctBy { it.contributor }.map { it.contributor to (it.profile?.displayName ?: "Someone") }, f.people) {
+                vm.filter = f.copy(people = it)
+            }
+            Chips("Day", vm.media.map { it.takenOn }.distinct().sorted().map { it to "Day ${tripStart.daysUntil(it) + 1}" }, f.days) {
+                vm.filter = f.copy(days = it)
+            }
+            Chips("Place", vm.places.keys.sorted().map { it to it.substringBefore(',') }, f.places) { vm.filter = f.copy(places = it) }
+            if (!f.isEmpty) TextButton(onClick = { vm.filter = GalleryFilter() }) { Text("Clear filters") }
+            if (vm.media.isNotEmpty() && visible.isEmpty()) Text("Nothing matches these filters.")
+        }
+    }
+    for (section in sections) {
+        section.title?.let { title ->
+            item(span = { GridItemSpan(maxLineSpan) }, key = "section:$title") {
+                Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 8.dp, top = 12.dp))
+            }
+        }
+        items(section.tiles, key = { it.cover.id }) { tile ->
+            Box(Modifier.clickable(onClickLabel = "Open") { onOpen(ordered, ordered.indexOf(tile.cover)) }) {
+                Thumbnail(tripId, tile.cover.id, tile.cover.kind, vm.thumbnails[tile.cover.id])
+                if (tile.others.isNotEmpty()) Text(
+                    "+${tile.others.size}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                        .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A labelled row of on/off choices that scrolls sideways. Hidden when there's only one choice. */
+@Composable
+private fun <T> Chips(label: String, options: List<Pair<T, String>>, chosen: Set<T>, onChange: (Set<T>) -> Unit) {
+    if (options.size < 2) return
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        for ((value, name) in options) {
+            FilterChip(
+                selected = value in chosen,
+                onClick = { onChange(if (value in chosen) chosen - value else chosen + value) },
+                label = { Text(name) },
+            )
+        }
     }
 }
 

@@ -35,21 +35,11 @@ import kotlinx.serialization.json.putJsonArray
 /** The most stops one routing request may hold; matches the server function. */
 private const val MAX_POINTS_PER_REQUEST = 20
 
-@Serializable
-data class LocatedMedia(
-    val id: String,
-    val kind: MediaKind,
-    @SerialName("captured_at") val capturedAt: String,
-    @SerialName("utc_offset_minutes") val utcOffsetMinutes: Int? = null,
-    val lat: Double? = null,
-    val lng: Double? = null,
-)
-
 class TripRoute(
     val plan: RoutePlan,
     val legs: List<RoutedLeg>,
     val days: List<DaySummary>,
-    val media: Map<String, LocatedMedia>,
+    val media: Map<String, TripMedia>,
     /** Why some legs are straight lines instead of following roads; null when all are on roads. */
     val routingProblem: String?,
 )
@@ -69,10 +59,7 @@ object Routes {
 
     /** Rebuilds the trip's route from everyone's located photos and videos. */
     suspend fun build(tripId: String): TripRoute {
-        val media = supabase.from("media")
-            .select(Columns.list("id", "kind", "captured_at", "utc_offset_minutes", "lat", "lng")) {
-                filter { eq("trip_id", tripId) }
-            }.decodeList<LocatedMedia>()
+        val media = Media.ofTrip(tripId)
         val plan = planRoute(media.mapNotNull { it.toRoutePoint() })
 
         var problem: String? = null
@@ -115,11 +102,4 @@ private fun Exception.routingMessage(): String = when (this) {
     else -> userMessage()
 }
 
-private fun LocatedMedia.toRoutePoint(): RoutePoint? {
-    if (lat == null || lng == null) return null
-    val instant = Instant.parse(capturedAt)
-    // The calendar day where it was taken: shift by the recorded time zone, else use the phone's.
-    val day = if (utcOffsetMinutes != null) (instant + utcOffsetMinutes.minutes).toLocalDateTime(TimeZone.UTC).date
-    else instant.toLocalDateTime(TimeZone.currentSystemDefault()).date
-    return RoutePoint(id, instant.toEpochMilliseconds(), day, LatLng(lat, lng))
-}
+fun TripMedia.toRoutePoint(): RoutePoint? = location?.let { RoutePoint(id, takenAt.toEpochMilliseconds(), takenOn, it) }

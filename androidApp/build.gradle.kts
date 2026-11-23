@@ -31,6 +31,9 @@ dependencies {
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)
     implementation(libs.media3.common)
+    implementation(libs.media3.exoplayer) // video playback in the gallery
+    implementation(libs.media3.ui)
+    implementation(libs.compose.ui)
     implementation(libs.coil.video) // video thumbnails in the import grid
     // The map's rendering engine ships separately from the map library; without it the map crashes on open.
     // OpenGL ES rather than Vulkan: every Android 10+ phone has it.

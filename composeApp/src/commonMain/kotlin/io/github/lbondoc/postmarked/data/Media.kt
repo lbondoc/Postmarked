@@ -7,9 +7,13 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.github.lbondoc.postmarked.domain.geo.LatLng
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -113,8 +117,45 @@ interface CameraRoll {
     fun allowMobileData(allowed: Boolean)
 }
 
+/** A photo or video in a trip, as the gallery and map see it. */
 @Serializable
-data class TripMedia(val id: String, val kind: MediaKind, val contributor: String)
+data class TripMedia(
+    val id: String,
+    val kind: MediaKind,
+    val contributor: String,
+    @SerialName("captured_at") val capturedAt: String,
+    @SerialName("utc_offset_minutes") val utcOffsetMinutes: Int? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val dhash: Long? = null,
+    val sharpness: Double? = null,
+    /** Who took it. */
+    val profile: Profile? = null,
+) {
+    val location: LatLng? get() = if (lat != null && lng != null) LatLng(lat, lng) else null
+    val takenAt: Instant get() = Instant.parse(capturedAt)
+
+    /** Clock time where it was taken when the camera recorded the time zone, else in the phone's zone. */
+    val localTime: LocalDateTime
+        get() = if (utcOffsetMinutes != null) (takenAt + utcOffsetMinutes.minutes).toLocalDateTime(TimeZone.UTC)
+        else takenAt.toLocalDateTime(TimeZone.currentSystemDefault())
+
+    val takenOn: LocalDate get() = localTime.date
+}
+
+@Serializable
+data class Reaction(@SerialName("user_id") val userId: String, val emoji: String)
+
+@Serializable
+data class Comment(
+    val id: String,
+    val author: String,
+    val body: String,
+    val profile: Profile? = null,
+)
+
+/** The reactions people can leave; the database accepts only these. */
+val REACTIONS = listOf("❤️", "😂", "😮", "👍", "🔥")
 
 /** A trip's photos and videos on the server. */
 object Media {
@@ -123,7 +164,10 @@ object Media {
     fun path(tripId: String, mediaId: String, file: String) = "$tripId/$mediaId/$file"
 
     suspend fun ofTrip(tripId: String): List<TripMedia> =
-        supabase.from("media").select(Columns.list("id", "kind", "contributor")) {
+        supabase.from("media").select(
+            // lat and lng are computed columns (see the media_location migration); profile is who took it.
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,profile:profiles(display_name)")
+        ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
         }.decodeList()
@@ -135,7 +179,7 @@ object Media {
         }.decodeList<JsonObject>().isNotEmpty()
 
     /** Adds the database row once all files are up. False when someone else added the same file first. */
-    suspend fun add(upload: QueuedUpload, sha256: String): Boolean = try {
+    suspend fun add(upload: QueuedUpload, sha256: String, dhash: Long?, sharpness: Double?): Boolean = try {
         supabase.from("media").insert(buildJsonObject {
             put("id", upload.mediaId)
             put("trip_id", upload.tripId)
@@ -144,6 +188,8 @@ object Media {
             upload.item.utcOffsetMinutes?.let { put("utc_offset_minutes", it) }
             upload.item.location?.let { put("location", "SRID=4326;POINT(${it.lng} ${it.lat})") }
             put("sha256", sha256)
+            dhash?.let { put("dhash", it) }
+            sharpness?.let { put("sharpness", it) }
         })
         true
     } catch (e: PostgrestRestException) {
@@ -159,10 +205,44 @@ object Media {
         deleteFiles(ofTrip(tripId).flatMap { m -> m.kind.files.map { path(tripId, m.id, it) } })
 
     /** Short-lived links to each item's thumbnail, by media id. The bucket is private, so plain links don't work. */
-    suspend fun thumbnailUrls(tripId: String, ids: List<String>): Map<String, String> {
+    suspend fun thumbnailUrls(tripId: String, ids: List<String>): Map<String, String> = signedUrls(tripId, ids, MediaKind.THUMB)
+
+    private suspend fun signedUrls(tripId: String, ids: List<String>, file: String): Map<String, String> {
         if (ids.isEmpty()) return emptyMap()
-        val byPath = bucket.createSignedUrls(1.hours, ids.map { path(tripId, it, MediaKind.THUMB) })
-            .associate { it.path to it.signedURL }
-        return ids.mapNotNull { id -> byPath[path(tripId, id, MediaKind.THUMB)]?.let { id to it } }.toMap()
+        val byPath = bucket.createSignedUrls(1.hours, ids.map { path(tripId, it, file) }).associate { it.path to it.signedURL }
+        return ids.mapNotNull { id -> byPath[path(tripId, id, file)]?.let { id to it } }.toMap()
+    }
+
+    /** A link to the full-size picture, or to the video itself. */
+    suspend fun viewUrl(tripId: String, item: TripMedia): String =
+        signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
+
+    /** Removes one of your own items: the row first, so the gallery never shows an item whose files are gone. */
+    suspend fun delete(tripId: String, item: TripMedia) {
+        supabase.from("media").delete { filter { eq("id", item.id) } }
+        deleteFiles(item.kind.files.map { path(tripId, item.id, it) })
+    }
+
+    suspend fun reactions(mediaId: String): List<Reaction> =
+        supabase.from("reactions").select(Columns.list("user_id", "emoji")) { filter { eq("media_id", mediaId) } }.decodeList()
+
+    suspend fun react(mediaId: String, emoji: String, on: Boolean) {
+        val me = myUserId ?: return
+        if (on) supabase.from("reactions").insert(buildJsonObject { put("media_id", mediaId); put("emoji", emoji) })
+        else supabase.from("reactions").delete { filter { eq("media_id", mediaId); eq("user_id", me); eq("emoji", emoji) } }
+    }
+
+    suspend fun comments(mediaId: String): List<Comment> =
+        supabase.from("comments").select(Columns.raw("id,author,body,profile:profiles(display_name)")) {
+            filter { eq("media_id", mediaId) }
+            order("created_at", Order.ASCENDING)
+        }.decodeList()
+
+    suspend fun comment(mediaId: String, body: String) {
+        supabase.from("comments").insert(buildJsonObject { put("media_id", mediaId); put("body", body.trim()) })
+    }
+
+    suspend fun deleteComment(id: String) {
+        supabase.from("comments").delete { filter { eq("id", id) } }
     }
 }

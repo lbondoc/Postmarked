@@ -2,7 +2,7 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: MVP milestone 3 (route and map)
+## Status: MVP milestone 4 (gallery)
 
 Milestone 1: sign in, create a trip (name, dates, one or more regions found by place search),
 invite people by QR code or link as editor or viewer, join, leave, delete.
@@ -18,6 +18,12 @@ photos: photos taken in a row at one place become a stop, GPS glitches are dropp
 ferries are drawn dashed and not counted, and the stops are joined along real roads. The map
 colours each day differently and groups nearby stops into numbered circles; tapping a stop shows
 its photos. Below the map: total miles and drive time, and each day's.
+
+Milestone 4: the trip page is a gallery. View everything, by day, by stop, or by who took it,
+and filter by photos/videos, person, day and named place (filters combine). Photos taken
+seconds apart that look alike fold into one tile showing the sharpest. Tapping opens a
+full-screen viewer: swipe, see who took it and when, play videos, react, comment, and delete
+your own items.
 
 ## Layout
 

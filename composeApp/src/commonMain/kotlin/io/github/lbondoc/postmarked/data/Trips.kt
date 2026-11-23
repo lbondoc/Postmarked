@@ -112,6 +112,16 @@ object Trips {
     }
 }
 
+/** Each of the trip's named places, for filtering the gallery by place. */
+suspend fun Trips.places(tripId: String): Map<String, TripArea> =
+    supabase.from("trip_regions").select(Columns.list("label", "geojson")) { filter { eq("trip_id", tripId) } }
+        .decodeList<NamedShape>()
+        .groupBy({ it.label }, { it.geojson })
+        .mapValues { (_, shapes) -> TripArea(shapes) }
+
+@Serializable
+private class NamedShape(val label: String, val geojson: JsonObject)
+
 class TripBounds(val start: LocalDate, val end: LocalDate, val area: TripArea)
 
 @Serializable

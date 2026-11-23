@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -46,6 +47,8 @@ import io.github.lbondoc.postmarked.data.MediaKind.Companion.THUMB
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.batchProgress
+import io.github.lbondoc.postmarked.domain.media.differenceHash
+import io.github.lbondoc.postmarked.domain.media.sharpness
 import io.github.lbondoc.postmarked.data.myUserId
 import io.github.lbondoc.postmarked.data.supabase
 import io.github.lbondoc.postmarked.data.userMessage
@@ -199,7 +202,10 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         val dir = scratch(start).apply { mkdirs() }
         var entry = start
-        val files = if (start.item.kind == MediaKind.Photo) photoFiles(uri, dir) else videoFiles(uri, dir)
+        val isPhoto = start.item.kind == MediaKind.Photo
+        // `lazy`: decoded once, on first use, and only if something still needs the picture.
+        val picture = lazy { if (isPhoto) decodeScaled(ImageDecoder.createSource(applicationContext.contentResolver, uri), DISPLAY_PX) else posterFrame(uri).scaledTo(DISPLAY_PX) }
+        val files = if (isPhoto) photoFiles(uri, dir, picture) else videoFiles(uri, dir, picture)
         fun report(fraction: Float) = UploadQueue.progress.update { it + (start.mediaId to fraction) }
         files.forEachIndexed { index, (name, produce) ->
             if (name in entry.uploadedFiles) return@forEachIndexed
@@ -217,7 +223,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             entry = entry.copy(uploadedFiles = entry.uploadedFiles + name)
             UploadQueue.save(entry)
         }
-        if (!Media.add(entry, sha256)) {
+        // Only photos are grouped into bursts, so only they need a fingerprint and sharpness.
+        val (dhash, sharpness) = if (isPhoto) withContext(Dispatchers.IO) { fingerprint(picture.value) } else null to null
+        if (!Media.add(entry, sha256, dhash, sharpness)) {
             // A friend's copy of the same file got in while ours was uploading: drop ours.
             Media.deleteFiles(entry.item.kind.files.map { Media.path(entry.tripId, entry.mediaId, it) })
         }
@@ -230,8 +238,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     // `lazy` decodes the photo once, on first use, and only if a file that needs it is still to upload.
-    private fun photoFiles(uri: Uri, dir: File): List<Pair<String, suspend () -> Upload>> {
-        val display = lazy { decodeScaled(ImageDecoder.createSource(applicationContext.contentResolver, uri), DISPLAY_PX) }
+    private fun photoFiles(uri: Uri, dir: File, display: Lazy<Bitmap>): List<Pair<String, suspend () -> Upload>> {
         return listOf(
             ORIGINAL to {
                 val copy = File(dir, ORIGINAL)
@@ -243,8 +250,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         )
     }
 
-    private fun videoFiles(uri: Uri, dir: File): List<Pair<String, suspend () -> Upload>> {
-        val poster = lazy { posterFrame(uri).scaledTo(DISPLAY_PX) }
+    private fun videoFiles(uri: Uri, dir: File, poster: Lazy<Bitmap>): List<Pair<String, suspend () -> Upload>> {
         return listOf(
             VIDEO to { Upload(transcode(uri, File(dir, VIDEO)), "video/mp4") },
             POSTER to { Upload(poster.value.jpeg(File(dir, POSTER), quality = 85), JPEG) },
@@ -353,6 +359,21 @@ private fun Bitmap.scaledTo(maxSide: Int): Bitmap {
 private fun Bitmap.jpeg(file: File, quality: Int): File {
     file.outputStream().use { compress(Bitmap.CompressFormat.JPEG, quality, it) }
     return file
+}
+
+/**
+ * What the gallery needs to group bursts: a fingerprint of how the picture looks, and how
+ * sharp it is. Both are measured on small grayscale copies, so they take milliseconds.
+ */
+private fun fingerprint(picture: Bitmap): Pair<Long, Double> {
+    fun Bitmap.gray(): IntArray {
+        val pixels = IntArray(width * height)
+        getPixels(pixels, 0, width, 0, 0, width, height)
+        // Perceived brightness: green counts most, blue least.
+        return IntArray(pixels.size) { i -> val c = pixels[i]; (299 * Color.red(c) + 587 * Color.green(c) + 114 * Color.blue(c)) / 1000 }
+    }
+    val small = picture.scaledTo(THUMB_PX)
+    return differenceHash(picture.scale(9, 8).gray()) to sharpness(small.gray(), small.width, small.height)
 }
 
 /** A message for the user when retrying can't help, or null when it might. */

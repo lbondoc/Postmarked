@@ -50,7 +50,13 @@ import kotlinx.serialization.Serializable
  * read and upload the camera roll.
  */
 @Composable
-fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, lastCrash: String? = null) {
+fun App(
+    onShare: (String) -> Unit,
+    scanQr: suspend () -> String?,
+    cameraRoll: CameraRoll,
+    videoPlayer: VideoPlayer,
+    lastCrash: String? = null,
+) {
     MaterialTheme {
         var crash by remember { mutableStateOf(lastCrash) }
         crash?.let { report ->
@@ -66,7 +72,7 @@ fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: Ca
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll)
+            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer)
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }
@@ -74,7 +80,7 @@ fun App(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: Ca
 }
 
 @Composable
-private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll) {
+private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, cameraRoll: CameraRoll, videoPlayer: VideoPlayer) {
     val nav = rememberNavController()
     NavHost(nav, startDestination = TripListRoute) {
         composable<TripListRoute> {
@@ -100,6 +106,7 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
                 onAddMedia = { nav.navigate(ImportRoute(tripId)) },
                 onOpenMap = { nav.navigate(MapRoute(tripId)) },
                 onShare = onShare,
+                videoPlayer = videoPlayer,
             )
         }
         composable<MapRoute> { entry ->
