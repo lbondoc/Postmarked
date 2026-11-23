@@ -951,6 +951,37 @@ BLOCKED, and nothing gets deployed from this sandbox.
     grouped database function would scale better.
   - **Needs manual check:** with two accounts, add a photo from one and see "1 new" on the other's trip list.
 
+## J1 day_notes table
+- Changes:
+  - `supabase/migrations/20261130000000_day_notes.sql` (new): `day_notes(trip_id, day, body, updated_by,
+    updated_at)` with primary key `(trip_id, day)`, as SPEC §6 defines it. RLS: members read; owner and editors
+    insert, update and delete ("members read, editors write"). Column grants match the app's upsert:
+    `insert (trip_id, day, body, updated_at)`, `update (body, updated_at)`. A `before insert or update` trigger
+    (security definer, execute revoked from clients):
+    - refuses a `day` outside the trip's dates (both ends inclusive), which the task requires and a check
+      constraint can't express because the dates live on `trips`;
+    - skips an update whose `updated_at` is older than the saved one. That's O2's "last write wins by
+      `updated_at`" on the server, so a stale offline edit arriving late can't overwrite a newer note;
+    - always sets `updated_by` to the caller.
+  - `supabase/tests/day_notes_test.sql` (new), the task's check:
+    - An editor writes and is recorded as the writer, and a viewer reads it.
+    - A viewer can't add, edit or delete; a stranger sees nothing and can't add.
+    - The last day is accepted; days before and after the trip are refused.
+    - A newer upsert replaces; an older one is skipped.
+    - An editor deletes, and notes go with the trip.
+- Approach: the trigger returns `NULL` for stale updates. With `insert … on conflict do update` (PostgREST's
+  upsert), that silently keeps the newer row instead of raising an error. That matters because the outbox
+  (O2) would otherwise retry a stale edit forever. I considered `WHERE excluded.updated_at > day_notes.updated_at`
+  on the conflict clause and rejected it: PostgREST can't send that, so the rule must live in the database.
+- Verification:
+  - Task check `./supabase/tests/run.sh` → `== tests/day_notes_test.sql` … `database tests passed`.
+  - Mutation checks: without the stale-edit rule the run fails with `ERROR: the older edit does not win`, and
+    without the date rule with `ERROR: a day before the trip is refused`. Restored, it passes.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; web build + smoke → passed.
+- Follow-ups: **needs manual step (owner):** run the migration in the Supabase SQL editor. If a trip's dates
+  are later shortened, notes on days now outside them stay until edited; the trigger checks only on writes.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

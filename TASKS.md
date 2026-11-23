@@ -114,7 +114,7 @@ must pass as well.
 
 ## Phase 3 — Journal
 
-- [ ] **J1 day_notes table.** A migration with RLS: members read, editors write, `day` within the trip's dates.
+- [x] **J1 day_notes table.** A migration with RLS: members read, editors write, `day` within the trip's dates.
   Check: `./supabase/tests/run.sh` (new `day_notes_test.sql`)
 - [ ] **J2 Notes in the By day view.** Edit in place, going through the outbox when offline.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*GalleryTest*'` (a by-day group carries its note)
