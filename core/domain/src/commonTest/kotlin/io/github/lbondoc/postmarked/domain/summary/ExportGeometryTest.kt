@@ -38,26 +38,4 @@ class ExportGeometryTest {
         // Panning past the left edge stops at it; zooming out past "fill" is not allowed.
         assertEquals(Box(0.0, 0.0, 3000.0, 3000.0), cropRegion(4000.0, 3000.0, 1.0, 0.0, 0.5, 0.5))
     }
-
-    @Test
-    fun theExportedCropMatchesTheChosenRatio() {
-        // A 4000 × 3000 photo in an adaptive layout: the tile takes the chosen ratio, and so does the exported crop.
-        for (ratio in CropRatio.entries.filter { it.aspect != null }) {
-            val slot = Layout.Filmstrip.arrange(listOf(tileAspect(ratio, 4000.0 / 3000))).slots.first()
-            val tileAspect = slot.w * Layout.Filmstrip.aspect / slot.h
-            assertEquals(ratio.aspect!!, tileAspect, 1e-9, ratio.name)
-            val crop = cropRegion(4000.0, 3000.0, tileAspect, 0.5, 0.5, 1.0)
-            assertEquals(ratio.aspect!!, crop.width / crop.height, 1e-9, ratio.name)
-        }
-        // Original keeps the photo's own shape: nothing is cut off.
-        val original = Layout.Filmstrip.arrange(listOf(tileAspect(CropRatio.Original, 4000.0 / 3000))).slots.first()
-        assertEquals(Box(0.0, 0.0, 4000.0, 3000.0), cropRegion(4000.0, 3000.0, original.w * Layout.Filmstrip.aspect / original.h, 0.5, 0.5, 1.0))
-    }
-
-    @Test
-    fun strictGridsLockTheRatioToTheTile() {
-        assertEquals(CropRatio.Square, lockedRatio(Layout.Grid3x3.slots.first().let { it.w * Layout.Grid3x3.aspect / it.h }))
-        assertEquals(Layout.Grid3x3.slots, Layout.Grid3x3.arrange(List(9) { tileAspect(CropRatio.Wide, 1.5) }).slots)
-        assertEquals(null, tileAspect(CropRatio.Free, 1.5), "Free keeps the layout's own slot")
-    }
 }

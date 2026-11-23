@@ -1,7 +1,5 @@
 package io.github.lbondoc.postmarked.ui
 
-import io.github.lbondoc.postmarked.domain.summary.tileAspect
-import io.github.lbondoc.postmarked.domain.summary.CropRatio
 import androidx.compose.runtime.produceState
 import coil3.request.SuccessResult
 import coil3.SingletonImageLoader
@@ -106,7 +104,7 @@ fun SummaryCanvas(
 ) {
     // Adaptive layouts follow each photo's shape (SPEC §8.4): measured as the pictures load, then reflowed.
     val aspects = rememberPictureAspects(tiles, pictures)
-    val arranged = remember(layout, aspects, tiles) { layout.arrange(tileAspects(layout, tiles, aspects)) }
+    val arranged = remember(layout, aspects, tiles.size) { layout.arrange(List(layout.slots.size) { i -> tiles.getOrNull(i)?.media?.let { aspects[it] } }) }
     val slots = arranged.slots
     // The gesture below runs for as long as a finger is down; these let it see the latest values.
     val tap by rememberUpdatedState(onTap)
@@ -366,7 +364,7 @@ fun CroppedPhoto(url: String?, crop: Crop?, colorFilter: ColorFilter?, modifier:
  * [CroppedPhoto] makes, so this is a cache hit, not a second download.
  */
 @Composable
-internal fun rememberPictureAspects(tiles: List<SummaryTile>, pictures: Map<String, String>): Map<String, Double> {
+private fun rememberPictureAspects(tiles: List<SummaryTile>, pictures: Map<String, String>): Map<String, Double> {
     val context = LocalPlatformContext.current
     val wanted = tiles.mapNotNull { it.media }.distinct().mapNotNull { id -> pictures[id]?.let { id to it } }
     val known by produceState(emptyMap<String, Double>(), wanted) {
@@ -378,14 +376,6 @@ internal fun rememberPictureAspects(tiles: List<SummaryTile>, pictures: Map<Stri
     }
     return known
 }
-
-/** Each slot's shape for [arrange]: the tile's chosen crop ratio, or its photo's own shape (S4). */
-internal fun tileAspects(layout: Layout, tiles: List<SummaryTile>, photoAspects: Map<String, Double>): List<Double?> =
-    List(layout.slots.size) { i ->
-        tiles.getOrNull(i)?.takeIf { it.media != null }?.let { tile ->
-            tileAspect(tile.crop?.cropRatio ?: CropRatio.Original, photoAspects[tile.media])
-        }
-    }
 
 /** The long-ish edge photos are decoded at for the editor: sharp on a phone, without loading full originals. */
 private const val PHOTO_PIXELS = 1200
