@@ -3,9 +3,13 @@ plugins {
 }
 
 kotlin {
-    // JVM only for now: Android consumes the JVM build, and tests run in seconds.
-    // The iOS targets get added here when there is a Mac to build them on.
+    // Android consumes the JVM build, and its tests run in seconds. The web and iOS apps share the same logic.
     jvm()
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs { nodejs() }
+    // Built and tested on CI's macOS runner (SPEC §1.3); Linux machines skip them with a warning.
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {

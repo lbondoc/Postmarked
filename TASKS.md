@@ -24,7 +24,7 @@ must pass as well.
   SPEC.md §1.1 which libraries compile (maplibre-compose, qrose, supabase-kt, Coil). Decide between the real map
   and the tile-free fallback.
   Check: `./gradlew :composeApp:compileKotlinWasmJs` (after the decision, it compiles with the map or the fallback)
-- [ ] **P2 Domain on all targets.** Add `wasmJs { nodejs() }`, `iosArm64` and `iosSimulatorArm64` to `core/domain`.
+- [x] **P2 Domain on all targets.** Add `wasmJs { nodejs() }`, `iosArm64` and `iosSimulatorArm64` to `core/domain`.
   Fix anything that only works on the JVM.
   Check: `./gradlew :core:domain:jvmTest :core:domain:wasmJsNodeTest`
 - [ ] **P3 composeApp on wasmJs.** Add the target and the Js Ktor engine. Put platform-only code behind

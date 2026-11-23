@@ -52,5 +52,36 @@ BLOCKED, and nothing gets deployed from this sandbox.
 - Follow-ups: maplibre-compose publishes iOS variants, so iOS could use the real map later (P6 stubs it for
   now). Revisit web if maplibre-compose ships wasmJs.
 
+## P2 Domain on all targets
+- Changes:
+  - `core/domain/build.gradle.kts`: added `wasmJs { nodejs() }`, `iosArm64()` and `iosSimulatorArm64()` next to
+    `jvm()`, and replaced the "JVM only for now" comment that no longer holds. The website (SPEC §1.2) and iOS
+    (§1.3) reuse this module's logic: route, matching, palettes, captions, and P5's EXIF reader. They can only
+    use it if it is built for their targets, and the task's check runs the tests on Node.
+  - `.github/workflows/ci.yml`: added `:core:domain:wasmJsNodeTest` to the "Unit tests" step. TASKS.md counts a
+    task as done when its check passes "locally or in CI", and CI is the one place it runs with the real Kotlin
+    npm tooling. Without this, a JVM-only API slipping into `commonMain` would only fail on the web.
+- Approach: added the targets and looked for JVM-only code to fix. A grep for `java.`, `String.format`,
+  `System.`, `synchronized` and `Thread` in `core/domain/src` found nothing (the only `.format(` calls are
+  kotlinx-datetime's, which is multiplatform). The whole module, tests included, then compiled for wasmJs and
+  both iOS targets, and the 118 tests pass on Node, so nothing needed changing. I considered `wasmJs { browser() }`
+  for the domain tests and rejected it: the task names `wasmJsNodeTest`, and Node tests need no browser.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest :core:domain:wasmJsNodeTest` → `BUILD SUCCESSFUL`; the result
+    XML sums to `118 tests, 0 failures, 0 errors, 0 skipped`. That equals the 118 `@Test`s in
+    `core/domain/src/commonTest`.
+  - Before Gradle could run the Node tests (tooling blocked), I ran the same wasm test binary under a stand-in
+    runner: 118/118 passed. With a deliberately failing canary test added it reported `1 failed` and exited 1,
+    then I removed the canary.
+  - `./gradlew :core:domain:compileKotlinIosSimulatorArm64 :core:domain:compileKotlinIosArm64` → `BUILD
+    SUCCESSFUL` on Linux. `iosSimulatorArm64Test` is disabled here ("cannot run on the current host").
+  - Gate: Gradle unit tests + APK → `BUILD SUCCESSFUL`; APK resources found; deno `6 passed | 0 failed`;
+    database `database tests passed`.
+  - `:composeApp:compileKotlinWasmJs` (TASKS.md: "from P2 on") doesn't exist until P3 adds the target, so it
+    enters the gate from P3.
+- Follow-ups: **needs manual check:** the iOS simulator tests run only on macOS (P6's CI job). The wasm Node
+  tests in CI depend on the Kotlin tooling downloading normally on GitHub's runners, so the first CI run of this
+  branch should be watched.
+
 ## Found
 - (nothing yet)

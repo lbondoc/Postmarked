@@ -44,7 +44,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
-        run: ./gradlew :core:domain:jvmTest :composeApp:testAndroidHostTest
+        run: ./gradlew :core:domain:jvmTest :core:domain:wasmJsNodeTest :composeApp:testAndroidHostTest
       - name: Build debug APK
         run: ./gradlew :androidApp:assembleDebug
       # The app's fonts and theme files must be inside the APK; without them it crashes on opening a trip.
