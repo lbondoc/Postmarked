@@ -8,7 +8,6 @@ import io.github.lbondoc.postmarked.data.DeviceMedia
 import io.github.lbondoc.postmarked.data.Media
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.DISPLAY
-import io.github.lbondoc.postmarked.data.MediaKind.Companion.ORIGINAL
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.POSTER
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.THUMB
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
@@ -196,8 +195,9 @@ internal object WebCameraRoll : CameraRoll {
         val picture = picture(file, isVideo).await<JsAny>()
         val display = scaled(picture, DISPLAY_PX, 0, 0)
         val thumb = scaled(picture, THUMB_PX, 0, 0)
-        val files: List<Pair<String, suspend () -> Pair<JsAny, String>>> = listOf(
-            (if (isVideo) VIDEO else ORIGINAL) to { file to fileType(file).ifEmpty { if (isVideo) "video/mp4" else JPEG } },
+        // A photo's original isn't uploaded (it would use most of the free plan's 1 GB); a video is the file itself.
+        val files: List<Pair<String, suspend () -> Pair<JsAny, String>>> = listOfNotNull(
+            if (isVideo) VIDEO to { file to fileType(file).ifEmpty { "video/mp4" } } else null,
             (if (isVideo) POSTER else DISPLAY) to { jpeg(display, 0.85).await<JsAny>() to JPEG },
             THUMB to { jpeg(thumb, 0.8).await<JsAny>() to JPEG },
         )

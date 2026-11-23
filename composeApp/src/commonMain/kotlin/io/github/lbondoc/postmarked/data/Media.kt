@@ -39,7 +39,11 @@ enum class MediaKind {
     @SerialName("photo") Photo,
     @SerialName("video") Video;
 
-    /** The files stored for each item. The storage rules in supabase/migrations accept only these names. */
+    /**
+     * The files an item can have, used to delete them all. The storage rules in supabase/migrations accept only
+     * these names. New photos are uploaded without [ORIGINAL] (it uses most of the free plan's 1 GB); older ones
+     * may still have it, so it stays here to be deleted with them.
+     */
     val files: List<String>
         get() = when (this) {
             Photo -> listOf(ORIGINAL, DISPLAY, THUMB)
@@ -47,7 +51,7 @@ enum class MediaKind {
         }
 
     companion object {
-        const val ORIGINAL = "original" // the camera's own file, GPS and all
+        const val ORIGINAL = "original" // the camera's own file; no longer uploaded, still on the taker's phone
         const val DISPLAY = "display.jpg" // 2048 px on the long side
         const val VIDEO = "video.mp4" // capped at 1080p; the original video stays on the phone
         const val POSTER = "poster.jpg" // a frame from the video, sized like DISPLAY
@@ -308,9 +312,9 @@ object Media {
     suspend fun viewUrl(tripId: String, item: TripMedia): String =
         signedUrls(tripId, listOf(item.id), if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY).getValue(item.id)
 
-    /** The item's own file, the original photo or the video, to save or share; named by when it was taken. */
+    /** The item's file to save or share, the photo's display copy or the video; named by when it was taken. */
     suspend fun savedFile(tripId: String, item: TripMedia): SavedFile {
-        val file = if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL
+        val file = if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY
         val url = bucket.createSignedUrl(path(tripId, item.id, file), 1.hours)
         val t = item.localTime
         val stamp = "${t.year}${pad(t.month.number)}${pad(t.day)}-${pad(t.hour)}${pad(t.minute)}${pad(t.second)}"
@@ -319,9 +323,9 @@ object Media {
 
     private fun pad(n: Int) = n.toString().padStart(2, '0')
 
-    /** The size in bytes of the item's main file (the original photo, or the video), for the info panel. */
+    /** The size in bytes of the item's main stored file (the photo's display copy, or the video), for the info panel. */
     suspend fun fileSize(tripId: String, item: TripMedia): Long? =
-        bucket.info(path(tripId, item.id, if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.ORIGINAL)).size
+        bucket.info(path(tripId, item.id, if (item.kind == MediaKind.Video) MediaKind.VIDEO else MediaKind.DISPLAY)).size
 
     /** Removes one of your own items: the row first, so the gallery never shows an item whose files are gone. */
     suspend fun delete(tripId: String, item: TripMedia) {

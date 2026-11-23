@@ -107,11 +107,13 @@ Each item gets a folder `<trip id>/<media id>/` in the private Storage bucket `m
 
 | Photo | Video |
 |---|---|
-| `original`: the camera's file, GPS included | `video.mp4`: H.264, at most 1080p, about 45 MB a minute |
-| `display.jpg`: 2048 px | `poster.jpg`: a frame about a second in |
-| `thumb.jpg`: 400 px | `thumb.jpg`: 400 px |
+| `display.jpg`: 2048 px, no metadata | `video.mp4`: H.264, at most 1080p, about 45 MB a minute |
+| `thumb.jpg`: 400 px | `poster.jpg`: a frame about a second in |
+| | `thumb.jpg`: 400 px |
 
-Original videos stay on the phone. Supabase's free plan refuses files over 50 MB, so videos over
+Original photos and videos stay on the phone that took them, which keeps the free plan's 1 GB for many
+more photos (about 0.6 MB each). Their date, time zone and GPS are read at upload and kept in the
+database. Photos uploaded before this change may also have an `original` file; it is deleted with them. Supabase's free plan refuses files over 50 MB, so videos over
 about a minute fail with a message; raise the file size limit in Storage settings on a paid plan.
 
 Reading GPS from the camera roll needs `ACCESS_MEDIA_LOCATION` plus `MediaStore.setRequireOriginal`
