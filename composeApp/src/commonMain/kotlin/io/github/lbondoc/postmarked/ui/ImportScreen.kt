@@ -15,6 +15,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
@@ -106,8 +110,23 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
         if (!selected.remove(uri)) selected += uri
     }
 
-    fun chosen(): List<DeviceMedia> = found?.run { onTrip + noLocation + elsewhere + otherDays }
-        ?.filter { it.uri in selected }.orEmpty()
+    /** Everything shown, in screen order. */
+    fun all(): List<DeviceMedia> = found?.run { onTrip + noLocation + elsewhere + otherDays }.orEmpty()
+
+    fun chosen(): List<DeviceMedia> = all().filter { it.uri in selected }
+
+    /** Ticks (or unticks) all of [items], skipping ones already added. */
+    fun setAll(items: List<DeviceMedia>, on: Boolean, added: Set<String>) {
+        val uris = items.map { it.uri }.filterNot { it in added }
+        if (on) selected += uris.filterNot { it in selected } else selected.removeAll(uris.toSet())
+    }
+
+    /** During a press-and-drag: the selection from when it began ([base]), with [range] all set to [on]. */
+    fun setRange(base: Set<String>, range: List<String>, on: Boolean) {
+        val next = if (on) base + range else base - range.toSet()
+        selected.retainAll(next)
+        selected += next.filterNot { it in selected }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,7 +146,17 @@ fun ImportScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Add photos and videos") }, navigationIcon = { TextButton(onClick = onDone) { Text("Back") } })
+            TopAppBar(
+                title = { Text("Add photos and videos") },
+                navigationIcon = { TextButton(onClick = onDone) { Text("Back") } },
+                actions = {
+                    val selectable = vm.all().filterNot { it.uri in added }
+                    if (selectable.isNotEmpty()) {
+                        val allOn = selectable.all { it.uri in vm.selected }
+                        TextButton(onClick = { vm.setAll(selectable, on = !allOn, added) }) { Text(if (allOn) "Clear all" else "Select all") }
+                    }
+                },
+            )
         },
         bottomBar = {
             if (vm.found?.isEmpty == false) Surface(tonalElevation = 3.dp) {
@@ -156,6 +185,7 @@ fun ImportScreen(
         },
     ) { insets ->
         val found = vm.found
+        val gridState = rememberLazyGridState()
         Box(Modifier.fillMaxSize().padding(insets)) {
             when {
                 vm.accessRefused -> Message("Postmarked needs access to your photos to add them. Allow it when asked, or in the app's settings.") {
@@ -165,6 +195,35 @@ fun ImportScreen(
                 found == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 found.isEmpty -> Message("No photos or videos from this trip's dates are on this phone.")
                 else -> LazyVerticalGrid(
+                    state = gridState,
+                    // Press and hold on a photo, then drag across others to tick (or untick) the whole run.
+                    modifier = Modifier.pointerInput(found, added) {
+                        val order = vm.all().map { it.uri }.filterNot { it in added }
+                        var anchor = -1
+                        var on = true
+                        var base = emptySet<String>()
+                        fun indexAt(at: Offset) = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                            at.x >= info.offset.x && at.x < info.offset.x + info.size.width &&
+                                at.y >= info.offset.y && at.y < info.offset.y + info.size.height
+                        }?.let { order.indexOf(it.key) }?.takeIf { it >= 0 }
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { at ->
+                                anchor = indexAt(at) ?: -1
+                                if (anchor >= 0) {
+                                    on = order[anchor] !in vm.selected // starting on a ticked photo unticks
+                                    base = vm.selected.toSet()
+                                }
+                            },
+                            onDrag = { change, _ ->
+                                if (anchor < 0) return@detectDragGesturesAfterLongPress
+                                change.consume()
+                                val here = indexAt(change.position) ?: return@detectDragGesturesAfterLongPress
+                                vm.setRange(base, order.subList(minOf(anchor, here), maxOf(anchor, here) + 1), on)
+                            },
+                            onDragEnd = { anchor = -1 },
+                            onDragCancel = { anchor = -1 },
+                        )
+                    },
                     columns = GridCells.Adaptive(96.dp),
                     contentPadding = PaddingValues(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -185,19 +244,28 @@ fun ImportScreen(
     }
 }
 
-private fun LazyGridScope.header(title: String, explanation: String?) {
+private fun LazyGridScope.header(title: String, explanation: String?, action: (@Composable () -> Unit)? = null) {
     // maxLineSpan: the header takes the whole row instead of one grid cell.
     item(span = { GridItemSpan(maxLineSpan) }) {
-        Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            explanation?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                explanation?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+            action?.invoke()
         }
     }
 }
 
 private fun LazyGridScope.section(title: String, explanation: String?, items: List<DeviceMedia>, vm: ImportViewModel, added: Set<String>) {
     if (items.isEmpty()) return
-    header("$title (${items.size})", explanation)
+    val selectable = items.filterNot { it.uri in added }
+    header("$title (${items.size})", explanation) {
+        if (selectable.isNotEmpty()) {
+            val allOn = selectable.all { it.uri in vm.selected }
+            TextButton(onClick = { vm.setAll(selectable, on = !allOn, added) }) { Text(if (allOn) "Clear" else "Select all") }
+        }
+    }
     items(items, key = { it.uri }) { item ->
         Cell(item, selected = item.uri in vm.selected, added = item.uri in added, onToggle = { vm.toggle(item.uri) })
     }
