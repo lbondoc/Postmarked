@@ -47,6 +47,7 @@ import io.github.lbondoc.postmarked.data.MediaKind.Companion.THUMB
 import io.github.lbondoc.postmarked.data.MediaKind.Companion.VIDEO
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.batchProgress
+import io.github.lbondoc.postmarked.domain.color.palette
 import io.github.lbondoc.postmarked.domain.media.differenceHash
 import io.github.lbondoc.postmarked.domain.media.sharpness
 import io.github.lbondoc.postmarked.data.myUserId
@@ -225,7 +226,12 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
         // Only photos are grouped into bursts, so only they need a fingerprint and sharpness.
         val (dhash, sharpness) = if (isPhoto) withContext(Dispatchers.IO) { fingerprint(picture.value) } else null to null
-        if (!Media.add(entry, sha256, dhash, sharpness)) {
+        // Main colours, for summaries and the colour filter; a video's come from its poster frame.
+        val colours = withContext(Dispatchers.IO) {
+            val small = picture.value.scaledTo(THUMB_PX)
+            palette(IntArray(small.width * small.height).also { small.getPixels(it, 0, small.width, 0, 0, small.width, small.height) })
+        }
+        if (!Media.add(entry, sha256, dhash, sharpness, colours)) {
             // A friend's copy of the same file got in while ours was uploading: drop ours.
             Media.deleteFiles(entry.item.kind.files.map { Media.path(entry.tripId, entry.mediaId, it) })
         }

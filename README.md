@@ -2,7 +2,7 @@
 
 A collaborative road-trip photo album. Kotlin Multiplatform + Compose Multiplatform, Android first.
 
-## Status: MVP milestone 4 (gallery)
+## Status: MVP milestone 5 (colour and summaries)
 
 Milestone 1: sign in, create a trip (name, dates, one or more regions found by place search),
 invite people by QR code or link as editor or viewer, join, leave, delete.
@@ -24,6 +24,13 @@ and filter by photos/videos, person, day and named place (filters combine). Phot
 seconds apart that look alike fold into one tile showing the sharpest. Tapping opens a
 full-screen viewer: swipe, see who took it and when, play videos, react, comment, and delete
 your own items.
+
+Milestone 5: every photo gets a five-colour palette (k-means in OKLab), worked out at upload;
+older photos get theirs from their thumbnails. The gallery gains a colour filter. Summaries
+lay photos out in six layouts (3 × 3, 2 × 3, 1 large + 4 small, filmstrip, polaroid collage,
+magazine) in four styles: one colour, trip palette gradient, rainbow, or chosen by hand, with
+text and colour tiles. Tiles can be swapped by dragging, and "harmonize colours" gives the
+photos one look (white balance, saturation, split toning) without changing the originals.
 
 ## Layout
 

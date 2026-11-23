@@ -3,6 +3,9 @@ package io.github.lbondoc.postmarked.ui
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.toRoutePoint
+import io.github.lbondoc.postmarked.domain.color.Oklab
+import io.github.lbondoc.postmarked.domain.color.hexToRgb
+import io.github.lbondoc.postmarked.domain.color.share
 import io.github.lbondoc.postmarked.domain.media.Shot
 import io.github.lbondoc.postmarked.domain.media.groupSimilar
 import io.github.lbondoc.postmarked.domain.route.planRoute
@@ -22,8 +25,10 @@ data class GalleryFilter(
     val people: Set<String> = emptySet(),
     val days: Set<LocalDate> = emptySet(),
     val places: Set<String> = emptySet(),
+    /** "#RRGGBB" colours; a photo matches when enough of it is in one of their families. */
+    val colours: Set<String> = emptySet(),
 ) {
-    val isEmpty get() = kinds.isEmpty() && people.isEmpty() && days.isEmpty() && places.isEmpty()
+    val isEmpty get() = kinds.isEmpty() && people.isEmpty() && days.isEmpty() && places.isEmpty() && colours.isEmpty()
 }
 
 /** One grid square: the best of a group of near-identical shots, with the rest behind it. */
@@ -41,7 +46,8 @@ fun filterMedia(items: List<TripMedia>, filter: GalleryFilter, places: Map<Strin
             (filter.places.isEmpty() || filter.places.any { name ->
                 val at = item.location
                 at != null && places[name]?.covers(at, PLACE_MARGIN_METERS) == true
-            })
+            }) &&
+            (filter.colours.isEmpty() || filter.colours.any { share(item.swatches, Oklab.fromRgb(hexToRgb(it))) >= MONOCHROME_SHARE })
     }
 
 /**
@@ -66,6 +72,9 @@ fun gallerySections(items: List<TripMedia>, allItems: List<TripMedia>, view: Gal
             .sortedBy { it.first().profile?.displayName?.lowercase() }
             .map { personItems -> Section("${personItems.first().profile?.displayName ?: "Someone"} · ${personItems.size}", tiles(personItems)) }
     }
+
+/** One photo per moment: the sharpest of each burst, plus videos. What summaries choose from. */
+fun covers(items: List<TripMedia>): List<TripMedia> = tiles(items).map { it.cover }
 
 /** In time order; photos taken seconds apart that look alike share a tile, showing the sharpest. */
 private fun tiles(items: List<TripMedia>): List<Tile> {

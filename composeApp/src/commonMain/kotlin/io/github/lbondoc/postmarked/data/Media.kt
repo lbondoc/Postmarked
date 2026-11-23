@@ -6,9 +6,14 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.github.lbondoc.postmarked.domain.geo.LatLng
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -16,7 +21,15 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import io.github.lbondoc.postmarked.domain.color.Oklab
+import io.github.lbondoc.postmarked.domain.color.Swatch
+import io.github.lbondoc.postmarked.domain.color.hexToRgb
+import io.github.lbondoc.postmarked.domain.color.palette
+import io.github.lbondoc.postmarked.domain.color.rgbToHex
+import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -129,9 +142,13 @@ data class TripMedia(
     val lng: Double? = null,
     val dhash: Long? = null,
     val sharpness: Double? = null,
+    /** Its main colours, largest first; null until worked out. */
+    val palette: List<PaletteEntry>? = null,
     /** Who took it. */
     val profile: Profile? = null,
 ) {
+    val swatches: List<Swatch> get() = palette.orEmpty().map { it.toSwatch() }
+
     val location: LatLng? get() = if (lat != null && lng != null) LatLng(lat, lng) else null
     val takenAt: Instant get() = Instant.parse(capturedAt)
 
@@ -142,6 +159,14 @@ data class TripMedia(
 
     val takenOn: LocalDate get() = localTime.date
 }
+
+/** One colour of a palette as stored: hex colour and share of the picture. */
+@Serializable
+data class PaletteEntry(val c: String, val w: Double) {
+    fun toSwatch() = Swatch(Oklab.fromRgb(hexToRgb(c)), w)
+}
+
+fun List<Swatch>.toEntries() = map { PaletteEntry(rgbToHex(it.rgb), (it.weight * 1000).roundToInt() / 1000.0) }
 
 @Serializable
 data class Reaction(@SerialName("user_id") val userId: String, val emoji: String)
@@ -167,7 +192,7 @@ object Media {
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
             // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,profile:profiles!contributor(display_name)")
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
@@ -180,7 +205,7 @@ object Media {
         }.decodeList<JsonObject>().isNotEmpty()
 
     /** Adds the database row once all files are up. False when someone else added the same file first. */
-    suspend fun add(upload: QueuedUpload, sha256: String, dhash: Long?, sharpness: Double?): Boolean = try {
+    suspend fun add(upload: QueuedUpload, sha256: String, dhash: Long?, sharpness: Double?, palette: List<Swatch>): Boolean = try {
         supabase.from("media").insert(buildJsonObject {
             put("id", upload.mediaId)
             put("trip_id", upload.tripId)
@@ -191,6 +216,7 @@ object Media {
             put("sha256", sha256)
             dhash?.let { put("dhash", it) }
             sharpness?.let { put("sharpness", it) }
+            put("palette", Json.encodeToJsonElement(palette.toEntries()))
         })
         true
     } catch (e: PostgrestRestException) {
@@ -222,6 +248,40 @@ object Media {
     suspend fun delete(tripId: String, item: TripMedia) {
         supabase.from("media").delete { filter { eq("id", item.id) } }
         deleteFiles(item.kind.files.map { path(tripId, item.id, it) })
+    }
+
+    /**
+     * Works out palettes for items uploaded before palettes existed, from their thumbnails, four
+     * at a time. Each is saved for everyone; for a viewer the server quietly refuses the save
+     * (only owners and editors may), and the palette is used on this phone only. Items that
+     * fail are left out. Returns the filled-in items by id.
+     */
+    suspend fun fillPalettes(tripId: String, items: List<TripMedia>): Map<String, TripMedia> = coroutineScope {
+        items.chunked(4).flatMap { chunk ->
+            chunk.map { item ->
+                async {
+                    try {
+                        val image = bucket.downloadAuthenticated(path(tripId, item.id, MediaKind.THUMB)).decodeToImageBitmap()
+                        val pixels = IntArray(image.width * image.height).also { image.readPixels(it) }
+                        val entries = palette(pixels).toEntries()
+                        supabase.from("media").update(buildJsonObject { put("palette", Json.encodeToJsonElement(entries)) }) {
+                            filter { eq("id", item.id) }
+                        }
+                        item.copy(palette = entries)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null // e.g. its thumbnail is missing; it simply stays out of colour features
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }.associateBy { it.id }
+    }
+
+    /** Links to the picture each summary tile shows: the display copy, or a video's poster. */
+    suspend fun pictureUrls(tripId: String, items: List<TripMedia>): Map<String, String> {
+        val (videos, photos) = items.partition { it.kind == MediaKind.Video }
+        return signedUrls(tripId, photos.map { it.id }, MediaKind.DISPLAY) + signedUrls(tripId, videos.map { it.id }, MediaKind.POSTER)
     }
 
     suspend fun reactions(mediaId: String): List<Reaction> =

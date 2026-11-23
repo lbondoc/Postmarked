@@ -60,6 +60,11 @@ import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.TripRole
 import io.github.lbondoc.postmarked.data.places
+import io.github.lbondoc.postmarked.domain.color.Swatch
+import io.github.lbondoc.postmarked.domain.color.colourName
+import io.github.lbondoc.postmarked.domain.color.mergePalettes
+import io.github.lbondoc.postmarked.domain.color.rgbToHex
+import androidx.compose.foundation.shape.CircleShape
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
@@ -92,6 +97,12 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         thumbnails = Media.thumbnailUrls(tripId, items.map { it.id })
         if (places.isEmpty()) places = Trips.places(tripId)
         media = items
+        // Photos uploaded before palettes existed get theirs now, once (it is saved for everyone).
+        val missing = items.filter { it.palette == null }
+        if (missing.isNotEmpty()) {
+            val filled = Media.fillPalettes(tripId, missing)
+            media = media.map { filled[it.id] ?: it }
+        }
     }
 
     fun invite(role: TripRole) = run { inviteToken = Trips.createInvite(tripId, role) }
@@ -115,6 +126,7 @@ fun TripScreen(
     onBack: () -> Unit,
     onAddMedia: () -> Unit,
     onOpenMap: () -> Unit,
+    onOpenSummaries: () -> Unit,
     onShare: (String) -> Unit,
     videoPlayer: VideoPlayer,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
@@ -160,7 +172,10 @@ fun TripScreen(
                     }
                     Text(trip.dates, style = MaterialTheme.typography.titleMedium)
                     trip.regions.forEach { Text(it.label) }
-                    Button(onClick = onOpenMap) { Text("Map and route") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onOpenMap) { Text("Map and route") }
+                        Button(onClick = onOpenSummaries) { Text("Summaries") }
+                    }
 
                     Text("People", style = MaterialTheme.typography.titleMedium)
                     trip.members.sortedBy { it.role }.forEach { member ->
@@ -307,6 +322,7 @@ private fun LazyGridScope.gallery(
                 vm.filter = f.copy(days = it)
             }
             Chips("Place", vm.places.keys.sorted().map { it to it.substringBefore(',') }, f.places) { vm.filter = f.copy(places = it) }
+            ColourChips(tripPalette(vm.media), f.colours) { vm.filter = f.copy(colours = it) }
             if (!f.isEmpty) TextButton(onClick = { vm.filter = GalleryFilter() }) { Text("Clear filters") }
             if (vm.media.isNotEmpty() && visible.isEmpty()) Text("Nothing matches these filters.")
         }
@@ -328,6 +344,31 @@ private fun LazyGridScope.gallery(
                         .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
+        }
+    }
+}
+
+/** The trip's main colours, from every photo's palette. */
+fun tripPalette(media: List<TripMedia>): List<Swatch> = mergePalettes(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+
+/** Filter chips for the trip's main colours, each showing its colour and named for screen readers. */
+@Composable
+private fun ColourChips(palette: List<Swatch>, chosen: Set<String>, onChange: (Set<String>) -> Unit) {
+    if (palette.size < 2) return
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Colour", style = MaterialTheme.typography.labelMedium)
+        for (swatch in palette) {
+            val hex = rgbToHex(swatch.rgb)
+            FilterChip(
+                selected = hex in chosen,
+                onClick = { onChange(if (hex in chosen) chosen - hex else chosen + hex) },
+                label = { Text(colourName(swatch.color)) },
+                leadingIcon = { Box(Modifier.size(16.dp).background(Color(0xFF000000 or swatch.rgb.toLong()), CircleShape)) },
+            )
         }
     }
 }

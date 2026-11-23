@@ -43,6 +43,8 @@ import kotlinx.serialization.Serializable
 @Serializable private data class TripRoute(val id: String)
 @Serializable private data class ImportRoute(val tripId: String)
 @Serializable private data class MapRoute(val tripId: String)
+@Serializable private data class SummariesRoute(val tripId: String)
+@Serializable private data class SummaryRoute(val tripId: String, val summaryId: String? = null)
 
 /**
  * The whole app. The parameters are things only the platform can do, handed in by the
@@ -105,9 +107,18 @@ private fun SignedIn(onShare: (String) -> Unit, scanQr: suspend () -> String?, c
                 onBack = { nav.popBackStack() },
                 onAddMedia = { nav.navigate(ImportRoute(tripId)) },
                 onOpenMap = { nav.navigate(MapRoute(tripId)) },
+                onOpenSummaries = { nav.navigate(SummariesRoute(tripId)) },
                 onShare = onShare,
                 videoPlayer = videoPlayer,
             )
+        }
+        composable<SummariesRoute> { entry ->
+            val tripId = entry.toRoute<SummariesRoute>().tripId
+            SummariesScreen(tripId, onBack = { nav.popBackStack() }, onOpen = { nav.navigate(SummaryRoute(tripId, it)) })
+        }
+        composable<SummaryRoute> { entry ->
+            val route = entry.toRoute<SummaryRoute>()
+            SummaryEditorScreen(route.tripId, route.summaryId, onBack = { nav.popBackStack() })
         }
         composable<MapRoute> { entry ->
             MapScreen(tripId = entry.toRoute<MapRoute>().tripId, onBack = { nav.popBackStack() })
