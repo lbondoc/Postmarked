@@ -324,6 +324,54 @@ BLOCKED, and nothing gets deployed from this sandbox.
 
   Nothing was deployed from this session.
 
+## F1 Trip hues replace the muddy palette
+- Changes:
+  - `core/domain/.../color/Color.kt`: `tripHues(palettes)`, following SPEC §2 step by step:
+    1. Each photo's weights are normalised to 1.
+    2. Only swatches with $C \ge$ `NEUTRAL_CHROMA` and $0.3 \le L \le 0.92$ compete.
+    3. They're grouped into 12 hue sectors of $30^\circ$, scored $S_k = \sum w_i C_i$.
+    4. Up to 6 sectors with $S_k \ge 0.02 \max S$ are returned, best first, each as its real
+       $\arg\max w_i C_i$ swatch.
+    5. Then at most one neutral (White, Grey or Black by `colourName`, whichever covers most), never
+       $L < 0.2$.
+
+    Each swatch's weight is its sector's share of the trip's photos, so `Swatch` keeps meaning "share of the
+    pictures".
+  - `ui/TripScreen.kt`: `tripPalette` calls `tripHues` instead of `mergePalettes`. That one function feeds the
+    gallery colour filter, the summary styles and the theme, so the fix lands everywhere SPEC names.
+  - `ui/AlbumTheming.kt`: the accent chips skip the neutral. SPEC says "the theme accent uses the trip hues
+    only", and the picker listed every palette swatch. The automatic accent (`resolveColours`) already filtered
+    to colourful swatches.
+  - `TripHuesTest.kt` (new): the task's check with its own scenario. Eight dark road photos (asphalt, black
+    shadow, a navy night sky at L 0.25 that is colourful but dark, dark dirt), one sunset and one sky. It
+    asserts orange and blue are present, no swatch has $L < 0.3$, and there's at most one neutral. It also
+    checks:
+    - every hue is a real swatch from a photo;
+    - the strongest sector comes first and the neutral last;
+    - each photo counts equally even with unnormalised weights;
+    - the cap of six, and the 2 % cut-off;
+    - an empty input.
+- Approach: implemented SPEC's algorithm literally. I didn't try to tune k-means (weights, more clusters):
+  averaging is the cause of the muddiness, and SPEC asks for real swatches, not centres. A scratch run of
+  the same trip through the old `mergePalettes` gave `Black L=0.25, Grey L=0.4, Black L=0.19, Blue, Orange`,
+  three dark entries ahead of any colour. `tripHues` gives `Blue L=0.64, Orange L=0.72, Purple L=0.46, Grey
+  L=0.39`.
+  - **`mergePalettes` was not deleted.** The task says to delete it "if unused". Production no longer calls it,
+    but the existing test `ColorTest.tripPaletteWeighsEachPhotoEqually` does, and deleting the function means
+    deleting that test, which this round's rules forbid. It stays, and its KDoc is unchanged.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*TripHuesTest*'` → `tests="6" skipped="0"
+    failures="0" errors="0"`.
+  - Gate: Gradle unit tests (incl. the existing `ColorTest`, `SummaryBuilderTest`, `AlbumThemeTest`) + APK +
+    `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno `6 passed | 0 failed`; `database
+    tests passed`; web build + `node web/smoke.mjs` → passed.
+- Follow-ups:
+  - The neutral may be as dark as L 0.2 per SPEC. A trip whose largest neutral is near-black could show one swatch
+    between L 0.2 and 0.3. The task's check (no $L < 0.3$) holds for its scenario because asphalt grey
+    outweighs the near-blacks.
+  - **Needs manual check:** how the new palette looks on a real trip.
+  - Decide whether to delete `mergePalettes` together with its test.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

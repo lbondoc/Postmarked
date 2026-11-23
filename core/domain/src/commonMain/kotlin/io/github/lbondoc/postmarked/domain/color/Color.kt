@@ -98,6 +98,49 @@ fun mergePalettes(palettes: List<List<Swatch>>, k: Int = 5): List<Swatch> {
     return kMeans(swatches.map { it.color }, swatches.map { it.weight }.toDoubleArray(), k)
 }
 
+private const val MIN_HUE_LIGHTNESS = 0.3
+private const val MAX_HUE_LIGHTNESS = 0.92
+private const val MIN_NEUTRAL_LIGHTNESS = 0.2
+private const val SECTOR_DEGREES = 30.0
+private const val MAX_HUES = 6
+private const val MIN_SECTOR_SHARE = 0.02
+
+/**
+ * The trip's colours, for the colour filter, summary styles and theme accent (SPEC §2). Averaging every photo's
+ * swatches (as [mergePalettes] does) pulls the colours toward big dark areas: road, shadow, night. So instead:
+ * each photo counts equally, only colourful mid-light swatches compete, they are scored per 30° hue sector by
+ * weight × chroma, and each of the best sectors (up to 6) is shown by its strongest real swatch, a colour that
+ * is actually in a photo. At most one neutral (white, grey or black, whichever covers most) comes last, never
+ * darker than L 0.2. A swatch's weight is its sector's share of the trip's photos.
+ */
+fun tripHues(palettes: List<List<Swatch>>): List<Swatch> {
+    val photos = palettes.filter { p -> p.sumOf { it.weight } > 0 }
+    if (photos.isEmpty()) return emptyList()
+    // Each photo's weights sum to 1, so one photo with a big palette can't outvote the rest.
+    val swatches = photos.flatMap { p -> val total = p.sumOf { it.weight }; p.map { Swatch(it.color, it.weight / total) } }
+    val perPhoto = 1.0 / photos.size
+
+    val colourful = swatches.filter { it.color.chroma >= NEUTRAL_CHROMA && it.color.l in MIN_HUE_LIGHTNESS..MAX_HUE_LIGHTNESS }
+    val sectors = colourful.groupBy { (it.color.hue / SECTOR_DEGREES).toInt() % 12 }
+    val score = sectors.mapValues { (_, s) -> s.sumOf { it.weight * it.color.chroma } }
+    val best = score.values.maxOrNull() ?: 0.0
+    val hues = score.entries
+        .filter { it.value >= MIN_SECTOR_SHARE * best }
+        .sortedByDescending { it.value }
+        .take(MAX_HUES)
+        .map { (sector, _) ->
+            val members = sectors.getValue(sector)
+            Swatch(members.maxBy { it.weight * it.color.chroma }.color, members.sumOf { it.weight } * perPhoto)
+        }
+
+    val neutral = swatches
+        .filter { it.color.chroma < NEUTRAL_CHROMA && it.color.l >= MIN_NEUTRAL_LIGHTNESS }
+        .groupBy { colourName(it.color) } // White, Grey or Black
+        .maxByOrNull { (_, s) -> s.sumOf { it.weight } }
+        ?.value?.let { s -> Swatch(s.maxBy { it.weight }.color, s.sumOf { it.weight } * perPhoto) }
+    return hues + listOfNotNull(neutral)
+}
+
 /**
  * Weighted k-means: [k] centres, each the weighted mean of the points nearest it, repeated
  * until stable. Starts with k-means++ (spread-out starting points) from a fixed seed, so

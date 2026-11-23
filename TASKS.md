@@ -48,7 +48,7 @@ must pass as well.
 
 ## Phase 1 — Fixes, viewer, actions
 
-- [ ] **F1 Trip hues replace the muddy palette.** Add `tripHues()` in `domain/color` (SPEC §2), use it in
+- [x] **F1 Trip hues replace the muddy palette.** Add `tripHues()` in `domain/color` (SPEC §2), use it in
   `tripPalette`, and delete `mergePalettes` if unused.
   Check: `./gradlew :core:domain:jvmTest --tests '*TripHuesTest*'`. The test trip is 8 dark road photos, 1 sunset
   and 1 sky. The result must include orange and blue, have no swatch with $L < 0.3$, and have at most one neutral.

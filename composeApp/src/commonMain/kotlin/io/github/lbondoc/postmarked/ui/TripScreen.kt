@@ -59,7 +59,7 @@ import io.github.lbondoc.postmarked.data.Song
 import io.github.lbondoc.postmarked.data.Songs
 import io.github.lbondoc.postmarked.data.places
 import io.github.lbondoc.postmarked.domain.color.Swatch
-import io.github.lbondoc.postmarked.domain.color.mergePalettes
+import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.batchProgress
 import io.github.lbondoc.postmarked.data.Trips
@@ -316,8 +316,8 @@ fun TripScreen(
     }
 }
 
-/** The trip's main colours, from every photo's palette. */
-fun tripPalette(media: List<TripMedia>): List<Swatch> = mergePalettes(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
+/** The trip's main colours, from every photo's palette: its strongest hues, then at most one neutral. */
+fun tripPalette(media: List<TripMedia>): List<Swatch> = tripHues(media.filter { !it.palette.isNullOrEmpty() }.map { it.swatches })
 
 /** One square in a grid of a trip's photos and videos. */
 @Composable

@@ -38,6 +38,7 @@ import io.github.lbondoc.postmarked.data.AlbumThemes
 import io.github.lbondoc.postmarked.data.Trip
 import io.github.lbondoc.postmarked.data.TripMedia
 import io.github.lbondoc.postmarked.data.look
+import io.github.lbondoc.postmarked.domain.color.NEUTRAL_CHROMA
 import io.github.lbondoc.postmarked.domain.color.Swatch
 import io.github.lbondoc.postmarked.domain.color.colourName
 import io.github.lbondoc.postmarked.domain.color.rgbToHex
@@ -127,7 +128,8 @@ fun ThemePicker(trip: Trip, palette: List<Swatch>, onPick: (themeId: String, acc
                 onClick = { onPick(current.id, null) },
                 label = { Text(if (current.usePalette) "From the photos" else "The theme's own") },
             )
-            for (swatch in palette) {
+            // The accent comes from the trip's hues only; a grey or white accent would vanish against the paper.
+            for (swatch in palette.filter { it.color.chroma >= NEUTRAL_CHROMA }) {
                 val hex = rgbToHex(swatch.rgb)
                 FilterChip(
                     selected = trip.customAccent == hex,
