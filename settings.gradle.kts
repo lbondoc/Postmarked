@@ -19,3 +19,4 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 include(":core:domain") // pure Kotlin logic: geo math now; route, matching and palette later
 include(":composeApp")  // shared Compose Multiplatform UI
 include(":androidApp")  // Android entry point: Activity, manifest, platform APIs
+include(":webApp")      // website entry point: runs the same App() in the browser (wasmJs)

@@ -124,5 +124,51 @@ BLOCKED, and nothing gets deployed from this sandbox.
   its first real render in P4's smoke test, behind sign-in. It has no zoom or pan: fine for a route overview, a
   limit for long trips with dense stops.
 
+## P4 webApp module and smoke test
+- Changes:
+  - `settings.gradle.kts`: `include(":webApp")`. The task asks for a separate `webApp` executable, the
+    counterpart of `androidApp`.
+  - `webApp/build.gradle.kts` (new): a wasmJs `browser()` target with `binaries.executable()`, bundled as
+    `postmarked.js`, depending on `composeApp`. `wasmJsBrowserDistribution`, the task's check, comes from this.
+  - `webApp/src/wasmJsMain/resources/index.html` (new): the page that loads `postmarked.js`, full-height with the
+    paper background so nothing flashes white before Compose draws.
+  - `web/Main.kt` (new): `ComposeViewport { App(...) }`, the "runs `App()`" part, with
+    `isA11YEnabled = true`. Compose web draws on a canvas, and with a11y off the page has no readable text at
+    all. I rebuilt once with it off: Playwright's aria snapshot was empty and `getByRole('button', {name: 'Sign
+    in'})` matched 0 elements. With it on, they match. So it is what lets the smoke test see the sign-in screen,
+    and it also makes the site usable with a screen reader.
+  - `web/Platform.kt` (new): the browser's versions of what `App()` asks for. Share uses Web Share where
+    present, else the clipboard. Videos open in a new tab, since a `<video>` can't sit inside the canvas. QR
+    scanning returns null (people join by link). The camera roll and exporter are `// shortcut:` stubs that
+    P5 replaces (file picker, downloads), so the site browses but can't upload yet.
+  - `web/smoke.mjs` (new): serves the dist folder on a local port with correct MIME types (`.wasm` must be
+    `application/wasm`) and opens it in the preinstalled Chromium. It fails on any `console.error` or page error,
+    or if the "Sign in" button doesn't appear within 60 s. The task asks for exactly that.
+  - `kotlin-js-store/wasm/yarn.lock`: Kotlin's lock for wasm npm packages. `webApp` adds `ws` (via Ktor's Js
+    engine). Without the update the build fails ("Lock file was changed"). The file itself first came in with
+    P2's commit (`@js-joda/core` for kotlinx-datetime), which the P2 entry above doesn't mention.
+- Approach:
+  - Playwright is loaded through `createRequire`, so the globally installed copy (`NODE_PATH`) is found without a
+    `package.json` or new dependency.
+  - One console error is allowed by exact text: Skiko, Compose's renderer, logs "Accessing `memory` via
+    `wasmExports` is deprecated". I traced it in the bundle to Skiko's own glue, and it isn't fixable here
+    without changing Compose's version.
+  - I considered and rejected two other ways to detect the sign-in screen:
+    - Comparing screenshot pixels: fragile across fonts and GPUs.
+    - A DOM marker set from the session state: it proves the state, not that the screen drew.
+- Verification:
+  - Task check `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs` → `BUILD SUCCESSFUL`, then
+    `smoke test passed: sign-in screen rendered with no console errors`. A screenshot showed the postmark logo,
+    "Sign in", the Email and Password fields, and "Create an account".
+  - Negative checks: an injected `console.error("canary")` gave `console error: canary`, exit 1. With
+    `postmarked.js` removed it reported the 404 plus `sign-in screen didn't render`, exit 1. Restored, it exits 0.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`.
+- Follow-ups:
+  - The smoke test isn't in CI yet: GitHub's runner needs Playwright and Chromium installed first. P7's `web` job
+    is where the site gets built in CI.
+  - Sign-in against the real Supabase project from the website isn't tested here. It needs the site URL in
+    Supabase Auth's redirect list (P7) and a real account. **Needs manual check.**
+
 ## Found
 - (nothing yet)

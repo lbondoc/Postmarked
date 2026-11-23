@@ -30,7 +30,7 @@ must pass as well.
 - [x] **P3 composeApp on wasmJs.** Add the target and the Js Ktor engine. Put platform-only code behind
   `expect`/`actual` or the existing interfaces, and add `TripMap`'s web actual (real map or fallback per P1).
   Check: `./gradlew :composeApp:compileKotlinWasmJs :composeApp:testAndroidHostTest`
-- [ ] **P4 webApp module and smoke test.** A `webApp` wasmJs executable that runs `App()`, plus `web/smoke.mjs`
+- [x] **P4 webApp module and smoke test.** A `webApp` wasmJs executable that runs `App()`, plus `web/smoke.mjs`
   (Playwright using the preinstalled Chromium). The smoke test serves `dist/`, opens it, and fails on console
   errors or if the sign-in screen doesn't render.
   Check: `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs`
