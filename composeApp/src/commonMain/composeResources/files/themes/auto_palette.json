@@ -1,0 +1,10 @@
+{
+  "id": "auto_palette",
+  "name": "Auto Palette",
+  "description": "Accent colours taken from the trip's own photos.",
+  "usePalette": true,
+  "header": "band",
+  "exportBorder": 0.0,
+  "light": { "paper": "#F7F3EA", "ink": "#23201C", "accent": "#B5452F", "accent2": "#2F5D50" },
+  "dark":  { "paper": "#1C1B19", "ink": "#EDE6D6", "accent": "#F0A830", "accent2": "#8CC5B3" }
+}

@@ -66,11 +66,12 @@ fun SummaryCanvas(
     gradeFor: (SummaryTile) -> FloatArray?,
     textColours: List<Int>,
     modifier: Modifier = Modifier,
+    paper: Color = PAPER,
     onSwap: ((Int, Int) -> Unit)? = null,
     onTap: ((Int) -> Unit)? = null,
 ) {
     val swap by rememberUpdatedState(onSwap)
-    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(layout.aspect.toFloat()).background(PAPER)) {
+    BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(layout.aspect.toFloat()).background(paper)) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
         val density = LocalDensity.current

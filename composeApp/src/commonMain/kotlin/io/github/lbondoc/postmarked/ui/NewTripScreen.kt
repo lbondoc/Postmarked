@@ -72,6 +72,8 @@ fun NewTripScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var pickingDates by remember { mutableStateOf(false) }
     val picker = rememberDateRangePickerState()
+    // Set once the trip exists: the stamp plays, then the trip opens.
+    var created by remember { mutableStateOf<String?>(null) }
     // The picker reports midnight UTC in milliseconds; whole days since 1970 is the calendar date.
     val start = picker.selectedStartDateMillis?.let { LocalDate.fromEpochDays(it.floorDiv(MS_PER_DAY)) }
     val end = picker.selectedEndDateMillis?.let { LocalDate.fromEpochDays(it.floorDiv(MS_PER_DAY)) }
@@ -132,13 +134,15 @@ fun NewTripScreen(
 
             vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
-                onClick = { vm.create(name, start!!, end!!, onCreated) },
+                onClick = { vm.create(name, start!!, end!!) { created = it } },
                 // The trip needs all three: a name, a date range and at least one region.
                 enabled = !vm.busy && name.isNotBlank() && start != null && end != null && vm.regions.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Create trip") }
         }
     }
+
+    created?.let { id -> StampOverlay(onDone = { onCreated(id) }) }
 
     if (pickingDates) {
         DatePickerDialog(

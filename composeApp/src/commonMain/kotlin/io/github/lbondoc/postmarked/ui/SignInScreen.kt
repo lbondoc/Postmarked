@@ -67,7 +67,7 @@ fun SignInScreen(vm: SignInViewModel = viewModel { SignInViewModel() }) {
             modifier = Modifier.fillMaxSize().padding(insets).padding(24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Postmarked", style = MaterialTheme.typography.displaySmall)
+            PostmarkLogo(size = 96.dp)
             Text(if (creating) "Create your account" else "Sign in", style = MaterialTheme.typography.titleMedium)
             if (creating) {
                 OutlinedTextField(

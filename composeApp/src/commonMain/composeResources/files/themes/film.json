@@ -1,0 +1,11 @@
+{
+  "id": "film",
+  "name": "Film",
+  "description": "35mm film borders and handwritten captions.",
+  "header": "caption",
+  "exportBorder": 0.045,
+  "exportBorderInk": true,
+  "exportEdge": "film",
+  "light": { "paper": "#ECE6DA", "ink": "#1E1E1E", "accent": "#9C5216", "accent2": "#8A3B2E" },
+  "dark":  { "paper": "#141414", "ink": "#EDE6D6", "accent": "#F0A830", "accent2": "#E05D44" }
+}

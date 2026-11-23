@@ -65,6 +65,10 @@ import io.github.lbondoc.postmarked.domain.color.colourName
 import io.github.lbondoc.postmarked.domain.color.mergePalettes
 import io.github.lbondoc.postmarked.domain.color.rgbToHex
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
@@ -107,6 +111,11 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
 
     fun invite(role: TripRole) = run { inviteToken = Trips.createInvite(tripId, role) }
 
+    fun setTheme(themeId: String, accent: String?) = run {
+        Trips.setTheme(tripId, themeId, accent)
+        trip = Trips.byId(tripId)
+    }
+
     fun closeInvite() {
         inviteToken = null
     }
@@ -146,6 +155,7 @@ fun TripScreen(
     LaunchedEffect(uploaded) { vm.loadMedia() }
     val trip = vm.trip
     val isOwner = trip?.myRole == TripRole.Owner
+    val look = rememberAlbumLook(trip, vm.media)
 
     Scaffold(
         topBar = {
@@ -170,8 +180,9 @@ fun TripScreen(
                         if (vm.error == null) CircularProgressIndicator()
                         return@Column
                     }
-                    Text(trip.dates, style = MaterialTheme.typography.titleMedium)
-                    trip.regions.forEach { Text(it.label) }
+                    look?.let { AlbumHeader(trip, it) } ?: Text(trip.dates, style = MaterialTheme.typography.titleMedium)
+                    trip.regions.forEach { Text(it.label, style = MaterialTheme.typography.bodySmall) }
+                    if (trip.myRole?.canEdit == true) ThemePicker(trip, tripPalette(vm.media)) { id, accent -> vm.setTheme(id, accent) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onOpenMap) { Text("Map and route") }
                         Button(onClick = onOpenSummaries) { Text("Summaries") }
@@ -361,9 +372,13 @@ private fun ColourChips(palette: List<Swatch>, chosen: Set<String>, onChange: (S
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("Colour", style = MaterialTheme.typography.labelMedium)
-        for (swatch in palette) {
+        palette.forEachIndexed { index, swatch ->
             val hex = rgbToHex(swatch.rgb)
+            // Each colour fades and grows in a moment after the one before it.
+            val shown = remember(hex) { Animatable(0f) }
+            LaunchedEffect(hex) { delay(index * 70L); shown.animateTo(1f, tween(220)) }
             FilterChip(
+                modifier = Modifier.graphicsLayer { alpha = shown.value; scaleX = 0.7f + 0.3f * shown.value; scaleY = 0.7f + 0.3f * shown.value },
                 selected = hex in chosen,
                 onClick = { onChange(if (hex in chosen) chosen - hex else chosen + hex) },
                 label = { Text(colourName(swatch.color)) },

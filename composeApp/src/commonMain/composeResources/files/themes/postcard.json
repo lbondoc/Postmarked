@@ -1,0 +1,11 @@
+{
+  "id": "postcard",
+  "name": "Postcard",
+  "description": "\"Greetings from\" lettering, a postmark and deckled edges.",
+  "header": "greetings",
+  "exportBorder": 0.05,
+  "exportEdge": "deckled",
+  "exportStamp": true,
+  "light": { "paper": "#F3E7CF", "ink": "#2B2622", "accent": "#A93226", "accent2": "#1F5FA6" },
+  "dark":  { "paper": "#211E1A", "ink": "#F1E7D3", "accent": "#E8664F", "accent2": "#7FB2E5" }
+}

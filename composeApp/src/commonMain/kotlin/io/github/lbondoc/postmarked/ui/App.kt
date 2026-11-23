@@ -59,7 +59,7 @@ fun App(
     videoPlayer: VideoPlayer,
     lastCrash: String? = null,
 ) {
-    MaterialTheme {
+    PostmarkedTheme {
         var crash by remember { mutableStateOf(lastCrash) }
         crash?.let { report ->
             AlertDialog(

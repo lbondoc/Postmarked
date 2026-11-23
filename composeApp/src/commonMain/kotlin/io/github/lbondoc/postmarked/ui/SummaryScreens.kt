@@ -144,12 +144,14 @@ fun SummariesScreen(
                 else if (summaries.isEmpty()) Text("No summaries yet.")
             }
             if (material != null) items(summaries.orEmpty(), key = { it.id!! }) { summary ->
+                val look = rememberAlbumLook(material.trip, material.media, forExport = true)
                 Column(Modifier.fillMaxWidth().clickable { onOpen(summary.id) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(summary.name, style = MaterialTheme.typography.titleMedium)
                     val layout = Layout.entries.firstOrNull { it.name == summary.layout } ?: Layout.Grid3x3
                     SummaryCanvas(
                         layout, summary.tiles, material.byId, material.pictures, material.gradeFor(summary),
                         material.textColours(summary), Modifier.fillMaxWidth(0.6f),
+                        paper = look?.let { rgbColor(it.colours.paper) } ?: Color(0xFFF7F3EA),
                     )
                 }
             }
@@ -282,8 +284,10 @@ fun SummaryEditorScreen(
                 if (vm.error == null) CircularProgressIndicator()
                 return@Column
             }
+            val look = rememberAlbumLook(material.trip, material.media, forExport = true)
             SummaryCanvas(
                 vm.layout, summary.tiles, material.byId, material.pictures, material.gradeFor(summary), material.textColours(summary),
+                paper = look?.let { rgbColor(it.colours.paper) } ?: Color(0xFFF7F3EA),
                 onSwap = if (canEdit) vm::swap else null,
                 onTap = if (canEdit) { index -> editing = index } else null,
             )

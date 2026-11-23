@@ -3,6 +3,8 @@ package io.github.lbondoc.postmarked.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -77,7 +79,7 @@ fun TripListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Trips") },
+                title = { Row(verticalAlignment = Alignment.CenterVertically) { PostmarkLogo(size = 40.dp); Text("  Trips") } },
                 actions = { TextButton(onClick = vm::signOut) { Text("Sign out") } },
             )
         },

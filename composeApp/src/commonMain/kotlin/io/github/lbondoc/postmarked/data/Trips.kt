@@ -11,6 +11,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -48,14 +49,18 @@ data class Trip(
     @SerialName("end_date") val endDate: LocalDate,
     @SerialName("trip_regions") val regions: List<Region> = emptyList(),
     @SerialName("trip_members") val members: List<Member> = emptyList(),
+    @SerialName("theme_id") val themeId: String? = null,
+    /** {"accent": "#RRGGBB"} when the owner picked an accent colour. */
+    @SerialName("theme_overrides") val themeOverrides: JsonObject? = null,
 ) {
     val myRole: TripRole? get() = members.firstOrNull { it.userId == myUserId }?.role
+    val customAccent: String? get() = (themeOverrides?.get("accent") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
 }
 
 /** Everything the app asks the backend about trips. All calls need a signed-in user. */
 object Trips {
     // "trip_regions(label)" pulls each trip's regions along in the same request.
-    private const val SUMMARY = "id,name,start_date,end_date,trip_regions(label)"
+    private const val SUMMARY = "id,name,start_date,end_date,theme_id,theme_overrides,trip_regions(label)"
     private const val DETAIL = "$SUMMARY,trip_members(user_id,role,profile:profiles(display_name))"
 
     /** Trips the user is a member of; the server's access rules do the filtering. */
@@ -81,6 +86,14 @@ object Trips {
         }).decodeAs()
 
     /** Returns a fresh invite token. The server keeps only its hash, so it cannot be shown again. */
+    /** Owners and editors set the album theme; everyone on the trip then sees it. */
+    suspend fun setTheme(tripId: String, themeId: String, accent: String?) {
+        supabase.from("trips").update(buildJsonObject {
+            put("theme_id", themeId)
+            put("theme_overrides", buildJsonObject { accent?.let { put("accent", it) } })
+        }) { filter { eq("id", tripId) } }
+    }
+
     suspend fun createInvite(tripId: String, role: TripRole): String =
         supabase.postgrest.rpc("create_invite", buildJsonObject {
             put("p_trip", tripId)

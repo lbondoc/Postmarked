@@ -44,3 +44,11 @@ kotlin {
         }
     }
 }
+
+// The theme test reads the theme files directly, so a change to them must re-run the tests.
+tasks.withType<Test>().configureEach { inputs.dir("src/commonMain/composeResources/files") }
+
+compose.resources {
+    // Generated accessors for fonts and theme files, e.g. Res.font.inter_400regular.
+    packageOfResClass = "io.github.lbondoc.postmarked.resources"
+}
