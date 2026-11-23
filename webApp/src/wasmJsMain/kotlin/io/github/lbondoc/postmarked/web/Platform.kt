@@ -6,20 +6,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import io.github.lbondoc.postmarked.data.CameraRoll
-import io.github.lbondoc.postmarked.data.DeviceMedia
-import io.github.lbondoc.postmarked.data.QueuedUpload
-import io.github.lbondoc.postmarked.data.ScanResult
 import io.github.lbondoc.postmarked.ui.ExportedImage
 import io.github.lbondoc.postmarked.ui.Exporter
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.ui.graphics.asSkiaBitmap
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Image
 
 private fun jsShare(text: String): Unit = js(
     "navigator.share ? navigator.share({ text: text }).catch(() => {}) : navigator.clipboard.writeText(text)",
 )
 
 private fun jsOpen(url: String): Unit = js("window.open(url, '_blank', 'noopener')")
+
+private fun copyText(text: String): Unit = js("navigator.clipboard.writeText(text).catch(() => {})")
 
 /** Web Share where the browser has it (phones), else the text goes to the clipboard. */
 internal fun shareText(text: String) = jsShare(text)
@@ -30,22 +29,30 @@ internal fun WebVideo(url: String, modifier: Modifier) = Box(modifier, Alignment
     TextButton(onClick = { jsOpen(url) }) { Text("Play video") }
 }
 
-// shortcut: picking files to upload comes with task P5 (web upload), until then the web can only browse.
-internal object WebCameraRoll : CameraRoll {
-    override suspend fun requestAccess() = false
-    override suspend fun scan(fromMs: Long, untilMs: Long) = ScanResult(emptyList(), locationAllowed = false)
-    override val uploads: StateFlow<List<QueuedUpload>> = MutableStateFlow(emptyList())
-    override val uploadProgress: StateFlow<Map<String, Float>> = MutableStateFlow(emptyMap())
-    override fun upload(tripId: String, items: List<DeviceMedia>) = Unit
-    override val mobileData: StateFlow<Boolean> = MutableStateFlow(true)
-    override fun allowMobileData(allowed: Boolean) = Unit
-}
+private const val JPEG_QUALITY = 92 // as on the phone: Instagram recompresses anyway
 
-// shortcut: downloads instead of the share sheet come with task P5, until then export copies the caption only.
+private fun ExportedImage.jpegBytes(): ByteArray =
+    Image.makeFromBitmap(image.asSkiaBitmap()).encodeToData(EncodedImageFormat.JPEG, JPEG_QUALITY)!!.bytes
+
+private fun ExportedImage.fileName() = if (name.endsWith(".jpg")) name else "$name.jpg"
+
+/** Exports on the web: Web Share with the pictures where the browser has it (phones), else they download. */
 internal object WebExporter : Exporter {
-    override fun share(images: List<ExportedImage>, text: String) = shareText(text)
-    override fun postToInstagram(image: ExportedImage, text: String) = shareText(text)
-    override fun openInstagram() = false
-    override suspend fun save(images: List<ExportedImage>) = Unit
-    override fun copy(text: String) = shareText(text)
+    override fun share(images: List<ExportedImage>, text: String) {
+        val files = images.map { namedBytes(it.fileName(), it.jpegBytes().toUint8Array()) }.toJsArray()
+        if (!shareFiles(files, text)) {
+            images.forEach(::downloadImage)
+            copy(text) // the caption, ready to paste
+        }
+    }
+
+    override fun postToInstagram(image: ExportedImage, text: String) = share(listOf(image), text)
+
+    override fun openInstagram() = false // a web page can't open the Instagram app
+
+    override suspend fun save(images: List<ExportedImage>) = images.forEach(::downloadImage)
+
+    override fun copy(text: String) = copyText(text)
+
+    private fun downloadImage(image: ExportedImage) = download(image.jpegBytes().toUint8Array(), image.fileName(), "image/jpeg")
 }

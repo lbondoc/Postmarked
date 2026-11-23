@@ -128,6 +128,9 @@ interface CameraRoll {
     val mobileData: StateFlow<Boolean>
 
     fun allowMobileData(allowed: Boolean)
+
+    /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
+    fun preview(item: DeviceMedia): Any? = item.uri
 }
 
 /** A photo or video in a trip, as the gallery and map see it. */

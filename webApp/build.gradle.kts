@@ -14,6 +14,8 @@ kotlin {
     }
 
     sourceSets {
+        // This module is the browser glue, so its JavaScript interop is the point, not an accident.
+        all { languageSettings.optIn("kotlin.js.ExperimentalWasmJsInterop") }
         wasmJsMain.dependencies {
             implementation(projects.composeApp)
             implementation(libs.compose.runtime)

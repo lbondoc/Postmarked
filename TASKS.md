@@ -34,7 +34,7 @@ must pass as well.
   (Playwright using the preinstalled Chromium). The smoke test serves `dist/`, opens it, and fails on console
   errors or if the sign-in screen doesn't render.
   Check: `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs`
-- [ ] **P5 Web upload.** File picker, a pure-Kotlin EXIF reader in `core/domain/media` (date and GPS), HEIC
+- [x] **P5 Web upload.** File picker, a pure-Kotlin EXIF reader in `core/domain/media` (date and GPS), HEIC
   rejection, the 50 MB video limit, in-tab progress. `Exporter` on web downloads the files.
   Check: `./gradlew :core:domain:jvmTest --tests '*ExifReaderTest*'` (fixture JPEGs with and without GPS, and a
   truncated file) `&& node web/smoke.mjs`

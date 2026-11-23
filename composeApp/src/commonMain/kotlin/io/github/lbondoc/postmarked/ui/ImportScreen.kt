@@ -263,10 +263,10 @@ fun ImportScreen(
                         "Postmarked wasn't allowed to read where these were taken, so it can only go by dates. " +
                             "Allow \"media location\" in the app's settings for better matches.",
                     )
-                    section("Taken on this trip", null, found.onTrip, vm, added)
-                    section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added)
-                    section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added)
-                    section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added)
+                    section("Taken on this trip", null, found.onTrip, vm, added, cameraRoll::preview)
+                    section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added, cameraRoll::preview)
+                    section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added, cameraRoll::preview)
+                    section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added, cameraRoll::preview)
                 }
             }
         }
@@ -286,7 +286,14 @@ private fun LazyGridScope.header(title: String, explanation: String?, action: (@
     }
 }
 
-private fun LazyGridScope.section(title: String, explanation: String?, items: List<DeviceMedia>, vm: ImportViewModel, added: Set<String>) {
+private fun LazyGridScope.section(
+    title: String,
+    explanation: String?,
+    items: List<DeviceMedia>,
+    vm: ImportViewModel,
+    added: Set<String>,
+    preview: (DeviceMedia) -> Any?,
+) {
     if (items.isEmpty()) return
     val selectable = items.filterNot { it.uri in added }
     header("$title (${items.size})", explanation) {
@@ -296,12 +303,12 @@ private fun LazyGridScope.section(title: String, explanation: String?, items: Li
         }
     }
     items(items, key = { it.uri }) { item ->
-        Cell(item, selected = item.uri in vm.selected, added = item.uri in added, onToggle = { vm.toggle(item.uri) })
+        Cell(item, preview(item), selected = item.uri in vm.selected, added = item.uri in added, onToggle = { vm.toggle(item.uri) })
     }
 }
 
 @Composable
-private fun Cell(item: DeviceMedia, selected: Boolean, added: Boolean, onToggle: () -> Unit) {
+private fun Cell(item: DeviceMedia, preview: Any?, selected: Boolean, added: Boolean, onToggle: () -> Unit) {
     val kind = if (item.kind == MediaKind.Video) "Video" else "Photo"
     Box(
         Modifier.aspectRatio(1f)
@@ -312,8 +319,8 @@ private fun Cell(item: DeviceMedia, selected: Boolean, added: Boolean, onToggle:
             }
             .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary) else Modifier),
     ) {
-        // Coil loads straight from the camera roll's content:// address, decoding at grid size.
-        AsyncImage(model = item.uri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        // On the phone Coil loads straight from the camera roll's content:// address, decoding at grid size.
+        AsyncImage(model = preview, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         if (item.kind == MediaKind.Video) Badge("▶ Video", Modifier.align(Alignment.BottomStart))
         if (selected) Badge("✓", Modifier.align(Alignment.TopEnd))
         if (added) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), Alignment.Center) {

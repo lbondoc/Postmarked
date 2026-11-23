@@ -170,5 +170,87 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Sign-in against the real Supabase project from the website isn't tested here. It needs the site URL in
     Supabase Auth's redirect list (P7) and a real account. **Needs manual check.**
 
+## P5 Web upload
+- Changes:
+  - `core/domain/.../media/ExifReader.kt` (new): `readExif(bytes)` walks the JPEG segments to APP1 "Exif",
+    reads the TIFF IFDs in either byte order, and returns DateTimeOriginal, OffsetTimeOriginal and the GPS
+    position. Also `exifDateTime()`. The task asks for a pure-Kotlin EXIF reader in `core/domain/media` because
+    the browser has no EXIF library and iOS will reuse it. It returns EXIF's own strings, so the existing
+    `exifDate` and `exifOffsetMinutes` (already used on Android) interpret them identically, and GPS goes through
+    the existing `gpsOrNull`. Every read is bounds-checked, so truncated or hostile files can't throw: these bytes
+    come from arbitrary user files.
+  - `ExifReaderTest.kt` (new): the task's check. The fixtures are 8 × 8 JPEGs written by Pillow, an independent
+    EXIF writer, so the test doesn't just mirror my reader. There are two with GPS (Intel and Motorola byte
+    orders) and one without, with a JFIF APP0 before APP1 so the segment walk is exercised. The truncated-file
+    case tries every possible cut of the file and asserts each field is either correct or null, never wrong and
+    never an exception. Also covered: non-JPEG input including a HEIC header, and `exifDateTime`.
+  - `composeApp/.../data/PickedFiles.kt` (new) + `PickedFilesTest.kt`: the web rules as pure, tested functions.
+    `pickedKind`, and `pickedFileProblem` (HEIC by MIME type or by `.heic`/`.heif` name, since some browsers leave
+    the type empty; anything over 50 MB refused with the phone's existing words, `TOO_BIG`). `pickedMedia` turns
+    EXIF + file date into the `DeviceMedia` the import screen already sorts: an exact instant with the offset,
+    the local zone without one, and the file date with no EXIF. The test covers each branch, including a late
+    evening photo landing on the right day.
+  - `data/Media.kt`: `CameraRoll.preview(item)`, defaulting to `item.uri`. The import grid showed thumbnails with
+    `AsyncImage(model = item.uri)`, and Coil can't load a browser File or `blob:` URL. The web returns small JPEG
+    bytes (Coil 3 has a ByteArray fetcher), and Android keeps working unchanged through the default.
+  - `ui/ImportScreen.kt`: passes `cameraRoll::preview` down to `Cell` for that.
+  - `webApp/.../Browser.kt` (new): the JavaScript the web needs: file picker, SHA-256 (Web Crypto), an upright
+    picture or video frame (`createImageBitmap` with `imageOrientation: 'from-image'`), scaling on an
+    OffscreenCanvas, JPEG blobs, ARGB pixels, upload via XMLHttpRequest (the only browser API that reports
+    upload progress, which "in-tab progress" needs), downloads and Web Share with files.
+  - `webApp/.../WebCameraRoll.kt` (new): replaces P4's stub. It follows the phone's `UploadWorker`:
+    - The same files per item (original, display, thumb; or video, poster, thumb), sizes and JPEG qualities.
+    - Skip-if-same-SHA-256, three parallel lanes, and resume per file.
+    - dhash, sharpness and palette measured the same way, and the same `Media.add`, so web uploads look the same
+      in the gallery.
+    - Files stay JavaScript `File` handles and go straight to Storage's REST endpoint with the user's token, so
+      a 50 MB video is never copied into wasm memory.
+    - HEIC and oversize files are queued with their reason, so the trip page's existing "N couldn't be uploaded:
+      …" line shows it.
+    - The tab asks before closing while uploads run.
+  - `web/Platform.kt`: `WebExporter` now encodes each picture to JPEG (Skia, quality 92 like Android) and
+    downloads it, or uses Web Share with files where the browser supports it. The caption is copied for pasting.
+  - `webApp/build.gradle.kts`: opts the module into `ExperimentalWasmJsInterop`. Every `js()` call warns without
+    it, and this module is the interop layer by design.
+- Approach:
+  - I picked the photos through the existing `scan()` → `sortForTrip` → import screen flow instead of a new web
+    screen. It keeps one import UI, and the "taken on this trip / no location / elsewhere" sorting works on web
+    for free.
+  - For uploads I considered three routes:
+    - supabase-kt's `upload(ByteArray)`: rejected, because it means copying every file byte by byte into wasm.
+    - `fetch`: rejected, because it has no upload progress.
+    - Signed upload URLs: rejected, an extra round trip per file for no gain.
+  - Videos are uploaded as they are, per SPEC (no transcoding on web).
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*ExifReaderTest*'` → `tests="6" … failures="0"` (and 6/6
+    on `wasmJsNodeTest`). Then `node web/smoke.mjs` → `smoke test passed`.
+  - `PickedFilesTest` → 6/6.
+  - Browser glue, run in Chromium on fixtures by a scratch script that extracts the exact JS bodies from
+    `Browser.kt`:
+    - A 3000 × 2000 JPEG with EXIF orientation 6 came back upright at 2000 × 3000, giving display 1365 × 2048,
+      thumb 267 × 400 and a 9 × 8 hash canvas. An 8 × 8 image was not enlarged.
+    - ARGB pixels read `255,30,90,200` for the RGB(30, 90, 200) fill, and the JPEG blob starts `FF D8`.
+    - The 640 × 360 test video gave a 640 × 360 frame.
+    - The upload reached a local server with `Bearer TOKEN`, `apikey`, `x-upsert: true` and `image/jpeg`, the
+      body byte-identical to the file, and progress ending at 1. A 413 came back as 413, an unreachable host
+      as 0.
+    - Web Crypto's SHA-256 equalled Node's.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`.
+- Follow-ups:
+  - **Needs manual check:** a real upload from the website to the Supabase project (sign in, add photos and a
+    video, see them in the gallery from the phone). This sandbox has no account, so the Storage REST call is
+    checked only against a local server, built from Supabase's documented API (POST `/storage/v1/object/{bucket}/{path}`
+    with `x-upsert`).
+  - The picker opens from the import screen's first composition, soon after the user's tap. Chrome and Firefox
+    allow that, but a browser with stricter user-activation rules could ignore the click (then "Try again" opens
+    it).
+  - Videos keep the browser's MIME type (e.g. `video/quicktime`) under the name `video.mp4`, and some browsers
+    can't play such files.
+  - Video dates come from the file date only (no MP4 metadata parsing), the same limit the phone has for video
+    clock time.
+  - Uploads are in memory: reloading the tab drops the queue. That's expected per SPEC ("Uploads run while the
+    tab is open"), and the browser warns before closing.
+
 ## Found
 - (nothing yet)
