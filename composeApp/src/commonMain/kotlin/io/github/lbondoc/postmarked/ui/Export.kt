@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.domain.summary.panoramaSlices
 import io.github.lbondoc.postmarked.domain.summary.noteToQuote
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -149,6 +150,14 @@ private suspend fun renderExport(material: SummaryMaterial, d: Drawing, kind: Ex
         val solo = d.summary.tiles.filter { it.media != null || it.bg != null }
         when (kind) {
             ExportKind.Single -> listOf(ExportedImage("$base.jpg", image { whole(d) }))
+            // A panorama: drawn once, as wide as all its slides together, then cut so the photo joins up when swiped.
+            ExportKind.Carousel if d.layout.slides > 1 -> {
+                val wide = ImageBitmap(size.width * d.layout.slides, size.height)
+                CanvasDrawScope().draw(ONE, LayoutDirection.Ltr, Canvas(wide), Size(wide.width.toFloat(), wide.height.toFloat())) { whole(d) }
+                panoramaSlices(d.layout.slides, wide.width.toDouble()).mapIndexed { i, (left, _) ->
+                    ExportedImage("$base-${i + 1}.jpg", image { drawImage(wide, topLeft = Offset(-left.toFloat(), 0f)) })
+                }
+            }
             ExportKind.Carousel -> listOf(ExportedImage("$base-1.jpg", image { whole(d) })) +
                 solo.mapIndexed { i, tile -> ExportedImage("$base-${i + 2}.jpg", image { alone(d, tile) }) }
             // Numbered in posting order: post 1 first, so it ends up bottom-right of the profile.
@@ -310,7 +319,7 @@ fun ExportSheet(
     val scope = rememberCoroutineScope()
     val measurer = rememberTextMeasurer()
     val font = headingFont()
-    var kind by remember { mutableStateOf(ExportKind.Single) }
+    var kind by remember { mutableStateOf(if (layout.slides > 1) ExportKind.Carousel else ExportKind.Single) }
     var size by remember { mutableStateOf(if (layout == Layout.Grid3x3) ExportSize.Square else ExportSize.Portrait) }
     var song by remember { mutableStateOf(songs.firstOrNull()) }
     fun generated() = caption(
@@ -363,7 +372,11 @@ fun ExportSheet(
             ChipRow(ExportKind.entries.filter { it != ExportKind.Grid || layout == Layout.Grid3x3 }, kind, { it.label }) { kind = it }
             when (kind) {
                 ExportKind.Single -> Text("The whole summary as one picture.", style = MaterialTheme.typography.bodySmall)
-                ExportKind.Carousel -> Text("The summary first, then each tile as its own slide.", style = MaterialTheme.typography.bodySmall)
+                ExportKind.Carousel -> Text(
+                    if (layout.slides > 1) "The panorama cut into ${layout.slides} slides that join up when swiped."
+                    else "The summary first, then each tile as its own slide.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 ExportKind.Grid -> Text(
                     "Nine posts that line up on your profile. Post them in order, starting with post 1: Instagram puts the newest at the top left.",
                     style = MaterialTheme.typography.bodySmall,

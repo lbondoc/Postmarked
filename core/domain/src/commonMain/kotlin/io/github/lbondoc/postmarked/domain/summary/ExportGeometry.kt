@@ -33,6 +33,15 @@ fun cropRegion(srcWidth: Double, srcHeight: Double, aspect: Double, x: Double, y
 }
 
 /**
+ * A panorama [width] pixels wide cut into [slides] equal strips, left to right, for a carousel. Each strip
+ * starts exactly where the one before ends, so the photo joins up when the slides are swiped.
+ */
+fun panoramaSlices(slides: Int, width: Double): List<Pair<Double, Double>> {
+    require(slides >= 1)
+    return (0 until slides).map { i -> (width * i / slides) to (width * (i + 1) / slides) }
+}
+
+/**
  * The order to post a 3-column grid's tiles so the profile shows them as laid out. Instagram
  * puts the newest post top-left, so the bottom-right tile goes first and the top-left last.
  * Returns tile indices (reading order) in posting order.

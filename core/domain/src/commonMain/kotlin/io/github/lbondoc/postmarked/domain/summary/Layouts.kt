@@ -26,11 +26,21 @@ private class SquareGrid(cols: Int, rows: Int) {
 private val grid3x3 = SquareGrid(3, 3)
 private val grid2x3 = SquareGrid(2, 3)
 
+/** One carousel slide's shape (Instagram portrait, 4:5); a panorama is this many slides wide. */
+private const val SLIDE_ASPECT = 4.0 / 5
+
 /**
  * The summary layouts. [aspect] is width / height of the whole canvas; [textSlots] are the
- * slots that start as text tiles when a summary is generated.
+ * slots that start as text tiles when a summary is generated. [slides] above 1 is a panorama: the canvas is
+ * that many carousel slides wide, and a carousel export cuts it into them ([panoramaSlices]).
  */
-enum class Layout(val label: String, val aspect: Double, val slots: List<Slot>, val textSlots: Set<Int> = emptySet()) {
+enum class Layout(
+    val label: String,
+    val aspect: Double,
+    val slots: List<Slot>,
+    val textSlots: Set<Int> = emptySet(),
+    val slides: Int = 1,
+) {
     Grid3x3("3 × 3", grid3x3.aspect, grid3x3.slots, textSlots = setOf(4)),
     Grid2x3("2 × 3", grid2x3.aspect, grid2x3.slots, textSlots = setOf(3)),
     Hero(
@@ -64,4 +74,14 @@ enum class Layout(val label: String, val aspect: Double, val slots: List<Slot>, 
         ),
         textSlots = setOf(1),
     ),
+    // Two photos, one above the other.
+    TwoUp("2-up", 4.0 / 5, listOf(Slot(0.0, 0.0, 1.0, 0.5 - GAP / 2), Slot(0.0, 0.5 + GAP / 2, 1.0, 0.5 - GAP / 2))),
+    // Four photos in a square 2 × 2 grid.
+    FourUp(
+        "4-up", 1.0,
+        (0 until 2).flatMap { r -> (0 until 2).map { c -> Slot(c * (0.5 + GAP / 2), r * (0.5 + GAP / 2), 0.5 - GAP / 2, 0.5 - GAP / 2) } },
+    ),
+    // One wide photo across 2 or 3 carousel slides, joining up as they are swiped.
+    Panorama2("Panorama, 2 slides", 2 * SLIDE_ASPECT, listOf(Slot(0.0, 0.0, 1.0, 1.0)), slides = 2),
+    Panorama3("Panorama, 3 slides", 3 * SLIDE_ASPECT, listOf(Slot(0.0, 0.0, 1.0, 1.0)), slides = 3),
 }

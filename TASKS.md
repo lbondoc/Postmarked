@@ -126,7 +126,7 @@ must pass as well.
 - [x] **S1 Five new filters.** Mono, Moody, Vivid, Desert, Night Drive.
   Check: `./gradlew :core:domain:jvmTest --tests '*LooksTest*'` (Mono gives $R = G = B$, Vivid raises chroma,
   Moody lowers lightness, Desert warms, Night Drive cools and darkens)
-- [ ] **S2 New layouts: 2-up, 4-up, panorama split.**
+- [x] **S2 New layouts: 2-up, 4-up, panorama split.**
   Check: `./gradlew :core:domain:jvmTest --tests '*LayoutsTest*'` (slots stay inside the canvas without
   overlapping, and the panorama's slices line up edge to edge across slides)
 - [ ] **S3 Justified rows and reflow by photo ratio.** A pure `justify(aspects, width, gap, targetHeight)`

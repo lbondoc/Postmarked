@@ -1083,6 +1083,41 @@ BLOCKED, and nothing gets deployed from this sandbox.
     `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
 - Follow-ups: **needs manual check:** how the five look on real photos in the per-photo editor.
 
+## S2 New layouts: 2-up, 4-up, panorama split
+- Changes:
+  - `core/domain/.../summary/Layouts.kt`:
+    - `Layout.slides`, defaulting to 1.
+    - `TwoUp`: two photos stacked on 4:5.
+    - `FourUp`: a 2 × 2 grid on a square.
+    - `Panorama2` and `Panorama3`: one full-canvas slot on a canvas exactly 2 or 3 slides of 4:5 wide.
+
+    SPEC §8.2 asks for these, with the panorama cut "across 2–3 carousel slides". Saved summaries store the
+    layout by name, so existing ones are unaffected, and the layout picker lists `Layout.entries`.
+  - `core/domain/.../summary/ExportGeometry.kt`: pure `panoramaSlices(slides, width)`, equal strips where each
+    one starts exactly where the last ended.
+  - `ui/Export.kt`: for panorama layouts, Carousel draws the whole summary once at `slides ×` slide width, then
+    cuts that one image into the slides, so the seams match by construction. The text explains this, and
+    Carousel is the default for panoramas. Other layouts export as before.
+  - `LayoutsTest.kt`: two new cases. The new layouts have 2, 4 and 1 photos and 2 or 3 slides. Panorama slices
+    start at 0, end at the full width, meet edge to edge, are each exactly one 1080 px slide, and the canvas is
+    exactly `slides × 4/5` so no slide gets a sliver of border. The existing "every slot is on the canvas" and
+    "straight layouts never overlap" tests run over `Layout.entries`, so they now cover the new layouts too.
+- Approach: the panorama is a layout like any other (one wide slot) plus a cut at export time. I considered
+  modelling slides as separate layouts with matched crops and rejected it: separate crops can drift apart,
+  while slicing one rendered image can't.
+- Verification:
+  - Task check `./gradlew :core:domain:jvmTest --tests '*LayoutsTest*'` → `tests="7" skipped="0" failures="0"
+    errors="0"`.
+  - All targets compile.
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - **Needs manual check:** post a panorama carousel and swipe it on Instagram.
+  - With the Tall or Square export size, a 4:5-slide panorama gets paper above and below; the slices still
+    line up.
+  - The generated panorama fills its one slot with the first matching photo. Picking the widest photo needs
+    photo aspect ratios, which come with S3/S4.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

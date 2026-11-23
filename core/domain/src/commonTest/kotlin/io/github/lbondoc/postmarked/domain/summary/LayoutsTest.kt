@@ -43,4 +43,28 @@ class LayoutsTest {
 
     @Test
     fun instagramGridHasNineTiles() = assertEquals(9, Layout.Grid3x3.slots.size)
+
+    @Test
+    fun theNewLayoutsHaveTheirPhotoCounts() {
+        assertEquals(2, Layout.TwoUp.slots.size)
+        assertEquals(4, Layout.FourUp.slots.size)
+        assertEquals(listOf(1, 1), listOf(Layout.Panorama2, Layout.Panorama3).map { it.slots.size })
+        assertEquals(listOf(2, 3), listOf(Layout.Panorama2, Layout.Panorama3).map { it.slides })
+    }
+
+    @Test
+    fun panoramaSlicesLineUpEdgeToEdge() {
+        for (layout in Layout.entries.filter { it.slides > 1 }) {
+            val width = 1080.0 * layout.slides // each slide 1080 px wide
+            val slices = panoramaSlices(layout.slides, width)
+            assertEquals(layout.slides, slices.size)
+            assertEquals(0.0, slices.first().first)
+            assertEquals(width, slices.last().second)
+            for (i in 0 until slices.size - 1) assertEquals(slices[i].second, slices[i + 1].first, "${layout.name}: slides ${i + 1} and ${i + 2} meet")
+            for ((left, right) in slices) assertEquals(1080.0, right - left, 1e-9)
+            // The canvas is exactly that many 4:5 slides wide, so no slide gets a sliver of border.
+            assertEquals(layout.slides * 4.0 / 5, layout.aspect, 1e-9)
+        }
+        assertEquals(listOf(0.0 to 100.0), panoramaSlices(1, 100.0))
+    }
 }
