@@ -12,6 +12,8 @@ kotlin {
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         withHostTest {} // runs commonTest on the computer, no phone needed
+        // Packages this module's fonts and theme files into the app; this library plugin leaves them out by default.
+        androidResources { enable = true }
     }
 
     sourceSets {
