@@ -164,6 +164,12 @@ interface CameraRoll {
     /** Live mode (SPEC §5): new photos taken on a trip are queued by themselves. Null where there is none (web, iOS). */
     val live: LiveMode? get() = null
 
+    /**
+     * True when [scan] returns only what the person picked (the website's file picker), so everything starts
+     * ticked. A phone's camera roll scan returns everything around the trip, so only clear matches start ticked.
+     */
+    val pickedByHand: Boolean get() = false
+
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri
 }
