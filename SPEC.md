@@ -28,6 +28,20 @@ New features from here on are written once in shared code and must build for eve
 - **Known risk:** maplibre-compose, qrose and supabase-kt may not all support `wasmJs` at the pinned versions.
   Task P1 checks this first. If the map has no web support, web gets a tile-free route drawing (stops and the road
   line on paper, the same drawing the carousel route slide uses, §6.4), behind an `expect`/`actual` `TripMap`.
+- **P1 result (2026-11-23, Kotlin 2.4.21, `wasmJs { browser() }` added to `composeApp` on a scratch branch):**
+
+  | Library (pinned) | wasmJs | Notes |
+  |---|---|---|
+  | supabase-kt 3.9.0 (auth, postgrest, storage, functions) | ✅ compiles | needs a Ktor engine on the web classpath (Js) |
+  | qrose 1.3.1 | ✅ compiles | |
+  | Coil 3.6.3 (`coil-compose`, `coil-network-ktor3`) | ✅ compiles | |
+  | maplibre-compose 0.20.0 | ❌ no `wasmJs` variant | publishes only android, jvm, js and Apple targets; 0.20.0 is the newest release. All 70 compile errors were in `ui/MapScreen.kt` |
+  | Compose MP 1.12.2, navigation, lifecycle, `core/domain` | ✅ compiles | |
+
+  **Decision: tile-free fallback on web.** The MapLibre map stays on Android (`androidMain` actual of `TripMap`),
+  and web gets `RouteDrawing`, a Canvas drawing of the day-coloured roads, dashed jumps and tappable stops. With
+  that split, `./gradlew :composeApp:compileKotlinWasmJs` succeeds. maplibre-compose does publish iOS variants,
+  so iOS could get the real map later. Revisit web when maplibre-compose ships `wasmJs`.
 
 ### 1.2 Website (full app)
 - A `webApp` module (wasmJs executable) running the same `App()`: sign in, trip list, create/join, gallery, viewer,

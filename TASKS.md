@@ -20,7 +20,7 @@ must pass as well.
 
 ## Phase 0 — Platforms
 
-- [ ] **P1 Check web support of dependencies.** Add `wasmJs` to `composeApp` on a scratch branch and note in
+- [x] **P1 Check web support of dependencies.** Add `wasmJs` to `composeApp` on a scratch branch and note in
   SPEC.md §1.1 which libraries compile (maplibre-compose, qrose, supabase-kt, Coil). Decide between the real map
   and the tile-free fallback.
   Check: `./gradlew :composeApp:compileKotlinWasmJs` (after the decision, it compiles with the map or the fallback)
