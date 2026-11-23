@@ -5,6 +5,7 @@ import androidx.compose.ui.window.ComposeViewport
 import io.github.lbondoc.postmarked.ui.App
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.lbondoc.postmarked.data.Outbox
 import io.github.lbondoc.postmarked.data.TripCache
 import io.github.lbondoc.postmarked.data.supabase
 import kotlinx.coroutines.MainScope
@@ -17,7 +18,7 @@ fun main() {
     TripCache.store = LocalStorageTripCache
     // Signing out forgets the saved trips: they belong to the account that loaded them.
     MainScope().launch {
-        supabase.auth.sessionStatus.collect { if (it is SessionStatus.NotAuthenticated && it.isSignOut) TripCache.store.clear() }
+        supabase.auth.sessionStatus.collect { if (it is SessionStatus.NotAuthenticated && it.isSignOut) { TripCache.store.clear(); Outbox.forget() } }
     }
     // Mirrors the UI's semantics into the page, so screen readers (and the smoke test) can read it.
     ComposeViewport(document.body!!, configure = { isA11YEnabled = true }) {

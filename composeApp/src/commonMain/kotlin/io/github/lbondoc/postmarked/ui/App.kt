@@ -1,5 +1,7 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.Outbox
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -83,7 +85,10 @@ fun App(
         val session by supabase.auth.sessionStatus.collectAsState()
         when (session) {
             is SessionStatus.Initializing -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            is SessionStatus.Authenticated -> SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter, photoSaver)
+            is SessionStatus.Authenticated -> {
+                LaunchedEffect(Unit) { runCatching { Outbox.flush() } } // what was written offline last time
+                SignedIn(onShare, scanQr, cameraRoll, videoPlayer, exporter, photoSaver)
+            }
             // shortcut: a failed token refresh while offline also lands here, keep the user in once offline mode exists.
             else -> SignInScreen()
         }

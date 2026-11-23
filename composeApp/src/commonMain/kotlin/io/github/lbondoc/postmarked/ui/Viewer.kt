@@ -1,8 +1,12 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.runtime.collectAsState
 import kotlinx.datetime.LocalDate
 import io.github.lbondoc.postmarked.data.placeName
 import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.Outbox
+import io.github.lbondoc.postmarked.data.OutboxEntry
+import io.github.lbondoc.postmarked.data.isOffline
 import androidx.compose.runtime.produceState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -113,6 +117,10 @@ fun Viewer(
         var problem by remember(item.id) { mutableStateOf<String?>(null) }
         var showComments by remember { mutableStateOf(false) }
         var showInfo by remember { mutableStateOf(false) }
+        // Writes not yet sent (offline, or still on their way): shown as already made, marked "Waiting to send".
+        val outbox by Outbox.entries.collectAsState()
+        val pendingComments = outbox.filterIsInstance<OutboxEntry.Comment>().filter { it.mediaId == item.id }
+        val pendingReactions = outbox.filterIsInstance<OutboxEntry.Reaction>().filter { it.mediaId == item.id }.associateBy { it.emoji }
         val saving = remember { SaveJob(scope) }
         var confirmingDelete by remember { mutableStateOf(false) }
 
@@ -122,7 +130,8 @@ fun Viewer(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                problem = e.userMessage()
+                // Offline after queueing a write: it waits in the outbox, which the screen already shows.
+                if (!isOffline(e) || Outbox.entries.value.isEmpty()) problem = e.userMessage()
             }
         }
         LaunchedEffect(item.id) {
@@ -185,13 +194,15 @@ fun Viewer(
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (emoji in REACTIONS) {
-                        val count = reactions.count { it.emoji == emoji }
-                        val mine = reactions.any { it.emoji == emoji && it.userId == myUserId }
+                        val sentMine = reactions.any { it.emoji == emoji && it.userId == myUserId }
+                        val waiting = pendingReactions[emoji]
+                        val mine = waiting?.on ?: sentMine
+                        val count = reactions.count { it.emoji == emoji } + (if (mine == sentMine) 0 else if (mine) 1 else -1)
                         FilterChip(
                             selected = mine,
                             onClick = {
                                 act {
-                                    Media.react(item.id, emoji, on = !mine)
+                                    Outbox.add(OutboxEntry.Reaction(Outbox.newId(), item.id, emoji, on = !mine))
                                     reactions = Media.reactions(item.id)
                                 }
                             },
@@ -206,7 +217,7 @@ fun Viewer(
                     }
                 }
                 Row {
-                    TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size})", color = Color.White) }
+                    TextButton(onClick = { showComments = true }) { Text("Comments (${comments.size + pendingComments.size})", color = Color.White) }
                     TextButton(onClick = { showInfo = !showInfo }) { Text(if (showInfo) "Hide info" else "ⓘ Info", color = Color.White) }
                     if (onSetCover != null) {
                         if (item.id == coverId) Text("Trip cover", color = Color.White, modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp))
@@ -220,7 +231,7 @@ fun Viewer(
             ModalBottomSheet(onDismissRequest = { showComments = false }) {
                 var draft by remember { mutableStateOf("") }
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (comments.isEmpty()) Text("No comments yet.")
+                    if (comments.isEmpty() && pendingComments.isEmpty()) Text("No comments yet.")
                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(comments, key = { it.id }) { comment ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -237,6 +248,10 @@ fun Viewer(
                             }
                         }
                     }
+                    for (waiting in pendingComments) Column {
+                        Text("You · Waiting to send", style = MaterialTheme.typography.labelLarge)
+                        Text(waiting.body)
+                    }
                     problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     OutlinedTextField(
                         value = draft, onValueChange = { draft = it.take(1000) },
@@ -247,7 +262,7 @@ fun Viewer(
                             val body = draft
                             draft = ""
                             act {
-                                Media.comment(item.id, body)
+                                Outbox.add(OutboxEntry.Comment(Outbox.newId(), item.id, body.trim()))
                                 comments = Media.comments(item.id)
                             }
                         },

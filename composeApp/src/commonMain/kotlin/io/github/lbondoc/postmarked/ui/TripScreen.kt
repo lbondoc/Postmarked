@@ -68,6 +68,7 @@ import io.github.lbondoc.postmarked.domain.color.Swatch
 import io.github.lbondoc.postmarked.domain.color.tripHues
 import io.github.lbondoc.postmarked.domain.trip.TripArea
 import io.github.lbondoc.postmarked.data.PhotoSaver
+import io.github.lbondoc.postmarked.data.Outbox
 import io.github.lbondoc.postmarked.data.TripCache
 import io.github.lbondoc.postmarked.data.TripSnapshot
 import io.github.lbondoc.postmarked.data.isOffline
@@ -130,6 +131,7 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
         if (loaded.offline) offline = true
         if (places.isEmpty() && !loaded.offline) places = Trips.places(tripId)
         media = items
+        if (!loaded.offline) Outbox.flush() // back online: send what was written meanwhile
         // Photos uploaded before palettes existed get theirs now, once (it is saved for everyone).
         val missing = items.filter { it.palette == null }
         if (missing.isNotEmpty() && !loaded.offline) {

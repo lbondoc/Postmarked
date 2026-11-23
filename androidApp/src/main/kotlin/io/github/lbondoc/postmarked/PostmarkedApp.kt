@@ -3,6 +3,7 @@ package io.github.lbondoc.postmarked
 import android.app.Application
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.lbondoc.postmarked.data.Outbox
 import io.github.lbondoc.postmarked.data.TripCache
 import io.github.lbondoc.postmarked.data.supabase
 import kotlinx.coroutines.MainScope
@@ -23,11 +24,13 @@ class PostmarkedApp : Application() {
         }
         UploadQueue.init(this)
         TripCache.store = AndroidTripCacheStore(this)
+        Outbox.onQueued = { OutboxWorker.start(this) }
         MainScope().launch {
             supabase.auth.sessionStatus.collect { status ->
                 if (status is SessionStatus.NotAuthenticated && status.isSignOut) {
                     UploadQueue.clear(this@PostmarkedApp)
                     TripCache.store.clear()
+                    Outbox.forget()
                 }
             }
         }

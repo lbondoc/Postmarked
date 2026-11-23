@@ -759,6 +759,53 @@ BLOCKED, and nothing gets deployed from this sandbox.
   - Offline, a session that can't be refreshed may sign the user out; that's the existing `// shortcut:` in
     `App.kt`.
 
+## O2 Outbox for comments, reactions and day notes
+- Changes:
+  - `data/Outbox.kt` (new):
+    - `OutboxEntry` (Comment, Reaction, DayNote), serializable with a type tag.
+    - Pure `enqueue`: comments append. A reaction replaces any queued one for the same photo and emoji, so a
+      duplicate becomes one, the last. A note replaces a queued note for the same day only if newer (last
+      write wins by `updatedAtMs`).
+    - Pure `sendInOrder`: an offline failure stops the run and keeps that entry and everything after it, so
+      comments never arrive out of order. A permanent refusal is dropped so it can't block the queue forever.
+    - The `Outbox` singleton persists to the same `TripCacheStore` as O1 (files on Android, `localStorage` on
+      web), so it survives restarts, and is forgotten on sign-out.
+    - Reactions are idempotent: removal is a delete, and adding treats Postgres 23505 on the
+      `(media_id, user_id, emoji)` key as success.
+    - Notes upsert `day_notes`, which J1 creates.
+
+    SPEC §4 names all of these rules.
+  - `ui/Viewer.kt`: comments and reactions go through the outbox. Queued comments show under the list as
+    "You · Waiting to send" and count in "Comments (N)". Reaction chips show the queued state and an adjusted
+    count. Offline after queueing, the reload's network error isn't shown, since the write is visibly waiting.
+  - `ui/App.kt`, `ui/TripScreen.kt`: send triggers. SPEC says sending happens "on the next app start or
+    successful request", so the outbox flushes once signed in and after each successful media load.
+  - `androidApp/.../OutboxWorker.kt` (new) + `PostmarkedApp.kt`: a WorkManager job with a CONNECTED
+    constraint, enqueued (KEEP) on every add, so a write made in airplane mode is sent when the network returns
+    even with the app closed. `Outbox.forget()` runs on sign-out.
+  - `web/Main.kt`: forgets the outbox on sign-out.
+  - `OutboxTest.kt` (new), the task's check:
+    - Order is kept.
+    - A failed (offline) send stays queued with everything after it, and a permanent refusal is dropped.
+    - A duplicate reaction becomes one, and on then off leaves only "off".
+    - A newer note beats an older one, a late stale edit doesn't replace it, and other days are separate.
+- Approach: pure queue rules plus a thin sender, so the rules SPEC lists are testable without a server.
+  I considered a database-backed queue and rejected it: SPEC rules out Room and SQLDelight. A JSON list in
+  the existing store is enough for a handful of writes.
+- Verification:
+  - Task check `./gradlew :composeApp:testAndroidHostTest --tests '*OutboxTest*'` → `tests="4" skipped="0"
+    failures="0" errors="0"`.
+  - All targets compile (Android APK, web, iOS).
+  - Gate: Gradle unit tests + APK + `compileKotlinWasmJs` → `BUILD SUCCESSFUL`; APK resources found; deno
+    `6 passed | 0 failed`; `database tests passed`; web build + smoke → passed.
+- Follow-ups:
+  - Day notes are queued and sent by this outbox, but nothing writes them until J2. Last write wins is enforced
+    here (client side). J1's migration has to make the server keep the newest `updated_at` too.
+  - **Needs manual check** on a phone: react and comment in airplane mode, kill the app, turn the network
+    back on, and both should appear for others.
+  - A comment whose response was lost after the server saved it can be sent twice: comment ids are
+    server-generated.
+
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).

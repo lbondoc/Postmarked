@@ -91,7 +91,7 @@ must pass as well.
   `localStorage` on web). Show the offline banner when falling back to it.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*TripCacheTest*'` (save → load round-trip, a corrupt
   file loads as empty without crashing, a failed network load returns the cached copy)
-- [ ] **O2 Outbox for comments, reactions and day notes.** Persist it, send in order when back online, keep
+- [x] **O2 Outbox for comments, reactions and day notes.** Persist it, send in order when back online, keep
   reactions idempotent, last write wins for notes, and show "Waiting to send".
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*OutboxTest*'` (order is kept, a failed send stays
   queued, a duplicate reaction becomes one, a newer note beats an older one)
