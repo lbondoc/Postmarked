@@ -195,7 +195,7 @@ See SPEC §9.
   this flow).
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: pick a screenshot and a photo from a year ago.
   The screenshot lands in No date in the file, and after choosing Day 2 it shows under Day 2 in the gallery.
-- [ ] **E6 Edit date and place.** **Edit date and place** in the viewer's info panel, shown to the uploader and the
+- [x] **E6 Edit date and place.** **Edit date and place** in the viewer's info panel, shown to the uploader and the
   owner. Day is chosen from the trip's days plus an optional time. Location is chosen with place search, then a
   draggable pin on Android, place search only on the web, or cleared. It saves through E3 and marks the cached route
   stale. The same place editor opens from the review screen for items in No location saved, before they upload.

@@ -166,4 +166,13 @@ class RouteTest {
     fun aCutOffPolylineIsRejected() {
         assertFailsWith<IllegalArgumentException> { decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq") }
     }
+
+    @Test
+    fun aPhotoPlacedByHandBecomesAStopLikeAGpsOne() {
+        // Set by hand to Monterey's centre, at noon: one photo, exactly on the point, between two GPS stops.
+        val plan = planRoute(listOf(point(santaCruz, 10.0), point(near(santaCruz, 50.0), 10.2), point(monterey, 12.0), point(bigSur, 15.0)))
+        assertEquals(3, plan.stops.size)
+        assertEquals(monterey, plan.stops[1].at, "the hand-set place is a stop of its own")
+        assertEquals(2, plan.legs.size)
+    }
 }

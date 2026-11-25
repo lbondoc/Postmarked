@@ -1,5 +1,7 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.plus
+import kotlinx.datetime.DateTimeUnit
 import androidx.compose.foundation.text.selection.SelectionContainer
 import io.github.lbondoc.postmarked.data.shareLink
 import io.github.lbondoc.postmarked.data.Shares
@@ -470,6 +472,13 @@ fun TripScreen(
                 vm.loadMedia()
             },
             onClose = { viewing = null },
+            tripDays = trip?.let { t -> generateSequence(t.startDate) { it.plus(1, DateTimeUnit.DAY) }.takeWhile { it <= t.endDate }.toList() }.orEmpty(),
+            isOwner = trip?.myRole == TripRole.Owner,
+            // The item may move to another day, so the gallery reloads; the map rebuilds its route from the new places.
+            onEdited = {
+                viewing = null
+                vm.loadMedia()
+            },
         )
     }
 

@@ -82,7 +82,9 @@ uninstall the previous build before installing a new one.
 ## Supabase project setup
 
 1. Run each file in `supabase/migrations` in the project's SQL editor, oldest first. Each runs once;
-   running one twice fails with "already exists" and changes nothing.
+   running one twice fails with "already exists" and changes nothing. Apply new ones before installing a build
+   that needs them: from E6 the gallery reads `media.date_by_hand`, so it fails to load without
+   `20261203000000_media_edit.sql`.
 2. Authentication → Sign In / Providers → Email: turn **Confirm email** off. The app signs in
    with email + password, and Supabase's built-in mailer is too limited to confirm friends' addresses.
 

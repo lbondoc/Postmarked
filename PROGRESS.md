@@ -1459,3 +1459,46 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     the gallery.
 - Follow-ups: Android's photo picker removes location data from the files it hands out, so photos picked this
   way have no GPS. They land in No location saved, or in No date in the file, and E6 lets people set the place.
+
+## E6 Edit date and place
+- Changes:
+  - `data/Media.kt`: `TripMedia` reads `date_by_hand` and `location_by_hand`. Both default to false, so trips
+    cached by an older build still load. `Media.edit` calls E3's `edit_media`.
+  - `ui/MediaInfo.kt`: the info panel says "Date set by hand" after the time and "Location set by hand" after
+    the place. The second line shows even while the place name is still loading.
+  - `ui/EditDatePlace.kt` (new): `DatePlaceDialog`. It offers the trip's days as chips (plus the photo's own day,
+    if that falls outside them) and an optional time ("14:30", checked as typed). The place is found with the
+    New trip search, set at the result's centre (`Place.centre()`, from E2), and can be cleared. `momentOf`
+    reads the chosen time with the photo's own UTC offset when the camera recorded one, else the device zone,
+    so editing a photo and saving it unchanged keeps its moment. `clockOf` parses the time, and E4's day picker
+    now uses it too.
+  - `ui/PinPicker.kt` plus actuals: on Android a MapLibre map (the trip map's keyless style) under a fixed pin.
+    Dragging the map moves the spot, which is read from the camera's centre. Web and iOS have none
+    (`hasPinPicker = false`, a `shortcut:` comment), so there it is the search alone, as SPEC §9.3 settled.
+  - `ui/Viewer.kt` and `ui/TripScreen.kt`: **Edit date and place** under the info lines, shown to the uploader
+    and the trip owner (the server checks too). After saving, the viewer closes and the gallery reloads, since
+    the photo may have moved to another day.
+  - `ui/ImportScreen.kt`: **Set place** on No location saved, and on No date in the file for ticked files without
+    a place. It opens the same dialog, place only, before upload. Cells say "Place set", and the upload carries
+    the place with `location_by_hand`. Cells' spoken descriptions now say "with no date" only for files that
+    really have none.
+  - `README.md`: setup step 1 says to apply new migrations before installing a build that needs them. From now
+    on the gallery reads E3's columns.
+- Approach: the "cached route" needed no extra code. The route is rebuilt from the trip's media every time the
+  map opens, and the router's in-memory cache is keyed by the stops' coordinates, so a moved photo changes the key
+  and is routed afresh.
+- Verification:
+  - Check `MediaInfoTest` → `tests="6" failures="0"`. The new cases check that the by-hand lines appear only when
+    the flags are set, and in the right places, even with no place name. A hand-set place is a route point at
+    that spot. A chosen moment keeps the camera's offset (14:15 at −7 h is 21:15 UTC; noon without a time).
+    `clockOf` reads " 9:05 " and refuses "25:00" and "noon".
+  - Check `RouteTest` → `tests="17" failures="0"` (new: one photo placed by hand at Monterey, between GPS stops
+    at Santa Cruz and Big Sur, becomes its own stop with legs on both sides rather than being dropped as a GPS
+    glitch).
+  - `:composeApp:compileKotlinWasmJs` and `:androidApp:assembleDebug` pass. The website smoke tests pass (sign-in
+    and `--share`). `npm test` → exit 0.
+- Follow-ups:
+  - **Needs manual check** on the phone. Open a photo, choose Edit date and place, move it to Day 2 and drag
+    the pin a block over, then check that the gallery, the info lines and the map follow.
+  - The iOS actual isn't compiled here, because there is no Mac. It is a one-line stub that CI's `ios` job will
+    compile.

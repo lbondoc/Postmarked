@@ -1,9 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
-import kotlinx.datetime.toInstant
+import io.github.lbondoc.postmarked.domain.geo.LatLng
 import kotlinx.datetime.format
 import kotlinx.datetime.LocalTime
-import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalDate
 import io.github.lbondoc.postmarked.data.suggestedDay
 import androidx.compose.runtime.remember
@@ -117,7 +116,7 @@ fun readyToAdd(chosen: List<DeviceMedia>, days: Map<String, LocalDate>): Boolean
  * recorded no time zone, so none is stored; the day is what matters for the gallery and route.
  */
 fun withChosenDay(item: DeviceMedia, day: LocalDate, time: LocalTime?, zone: TimeZone): DeviceMedia = item.copy(
-    capturedAtMs = LocalDateTime(day, time ?: LocalTime(12, 0)).toInstant(zone).toEpochMilliseconds(),
+    capturedAtMs = momentOf(day, time, utcOffsetMinutes = null, zone).toEpochMilliseconds(),
     takenOn = day,
     utcOffsetMinutes = null,
     dateByHand = true,
@@ -132,6 +131,8 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
     /** The trip day chosen for each file with no date, and the optional time, by uri. */
     val days = mutableStateMapOf<String, LocalDate>()
     val times = mutableStateMapOf<String, LocalTime>()
+    /** Places set by hand for files with no location, by uri (SPEC §9.3). */
+    val places = mutableStateMapOf<String, LatLng>()
     var tripDays by mutableStateOf<List<LocalDate>>(emptyList())
         private set
 
@@ -158,6 +159,7 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
         selected += startTicked(result, alreadyAdded, pickedByHand)
         tripDays = generateSequence(trip.start) { it.plus(1, DateTimeUnit.DAY) }.takeWhile { it <= trip.end }.toList()
         days.clear()
+        places.clear()
         for (item in result.noDate) suggestedDay(item, trip.start, trip.end)?.let { days[item.uri] = it }
         found = result
     }
@@ -174,7 +176,13 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
 
     /** The ticked items ready to upload, files with no date carrying their chosen day. */
     fun chosen(): List<DeviceMedia> = ticked().map { item ->
-        days[item.uri]?.takeIf { !item.dateKnown }?.let { withChosenDay(item, it, times[item.uri], TimeZone.currentSystemDefault()) } ?: item
+        val dated = days[item.uri]?.takeIf { !item.dateKnown }?.let { withChosenDay(item, it, times[item.uri], TimeZone.currentSystemDefault()) } ?: item
+        places[item.uri]?.takeIf { item.location == null }?.let { dated.copy(lat = it.lat, lng = it.lng, locationByHand = true) } ?: dated
+    }
+
+    /** Puts every one of [items] at [at], or takes the hand-set place away when null. */
+    fun setPlace(items: List<DeviceMedia>, at: LatLng?) {
+        for (item in items) if (at != null) places[item.uri] = at else places.remove(item.uri)
     }
 
     /** Gives every one of [items] the trip [day], and [time] when given. */
@@ -215,6 +223,8 @@ fun ImportScreen(
     LaunchedEffect(Unit) { if (vm.found == null) vm.load(cameraRoll, added) }
     // The ticked files with no date the day picker is open for.
     var choosingDayFor by remember { mutableStateOf<List<DeviceMedia>?>(null) }
+    // The ticked files with no location the place editor is open for.
+    var placingFor by remember { mutableStateOf<List<DeviceMedia>?>(null) }
 
     Scaffold(
         topBar = {
@@ -295,15 +305,31 @@ fun ImportScreen(
                         "These don't say when they were taken. Choose the trip day for each ticked one; the time is optional.",
                         found.noDate, vm, added, cameraRoll::preview,
                         dayOf = { item -> vm.days[item.uri]?.let { "Day ${vm.tripDays.indexOf(it) + 1}" } ?: "No day" },
-                        action = { items -> TextButton(onClick = { choosingDayFor = items }) { Text("Set day") } },
+                        action = { items ->
+                            TextButton(onClick = { choosingDayFor = items }) { Text("Set day") }
+                            if (items.any { it.location == null }) TextButton(onClick = { placingFor = items.filter { it.location == null } }) { Text("Set place") }
+                        },
                     )
                     section("Taken on this trip", null, found.onTrip, vm, added, cameraRoll::preview)
-                    section("No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip.", found.noLocation, vm, added, cameraRoll::preview)
+                    section(
+                        "No location saved", "Taken during the trip, but the camera didn't record where. Tick the ones from the trip; Set place puts them on the map.",
+                        found.noLocation, vm, added, cameraRoll::preview,
+                        dayOf = { item -> "Place set".takeIf { item.uri in vm.places } },
+                        action = { items -> TextButton(onClick = { placingFor = items }) { Text("Set place") } },
+                    )
                     section("Taken somewhere else", "Taken during the trip's dates, but away from its places.", found.elsewhere, vm, added, cameraRoll::preview)
                     section("Taken on other days", "Taken at the trip's places, but outside its dates.", found.otherDays, vm, added, cameraRoll::preview)
                 }
             }
         }
+    }
+    placingFor?.let { items ->
+        DatePlaceDialog(
+            title = if (items.size == 1) "Where was it taken?" else "Where were these ${items.size} taken?",
+            tripDays = vm.tripDays, day = null, time = null, place = vm.places[items.first().uri], showDate = false,
+            onSave = { _, _, at -> vm.setPlace(items, at); placingFor = null },
+            onDismiss = { placingFor = null },
+        )
     }
     choosingDayFor?.let { items ->
         DayPicker(vm.tripDays, items.size, onPick = { day, time -> vm.setDay(items, day, time); choosingDayFor = null }, onDismiss = { choosingDayFor = null })
@@ -316,9 +342,7 @@ fun ImportScreen(
 private fun DayPicker(tripDays: List<LocalDate>, count: Int, onPick: (LocalDate, LocalTime?) -> Unit, onDismiss: () -> Unit) {
     var day by remember { mutableStateOf<LocalDate?>(null) }
     var time by remember { mutableStateOf("") }
-    val parsed = time.trim().takeIf { it.isNotEmpty() }?.let { t ->
-        Regex("^(\\d{1,2}):(\\d{2})$").find(t)?.destructured?.let { (h, m) -> h.toInt().takeIf { it < 24 }?.let { hh -> m.toInt().takeIf { it < 60 }?.let { LocalTime(hh, it) } } }
-    }
+    val parsed = clockOf(time)
     val timeOk = time.isBlank() || parsed != null
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -361,7 +385,7 @@ private fun LazyGridScope.section(
     added: Set<String>,
     preview: (DeviceMedia) -> Any?,
     /** A label on each cell, e.g. the chosen day of a file with no date. */
-    dayOf: ((DeviceMedia) -> String)? = null,
+    dayOf: ((DeviceMedia) -> String?)? = null,
     /** An extra header action for the section's ticked items. */
     action: (@Composable (ticked: List<DeviceMedia>) -> Unit)? = null,
 ) {
@@ -387,7 +411,8 @@ private fun Cell(item: DeviceMedia, preview: Any?, selected: Boolean, added: Boo
         Modifier.aspectRatio(1f)
             .toggleable(value = selected, enabled = !added, role = Role.Checkbox, onValueChange = { onToggle() })
             .semantics {
-                contentDescription = (if (label != null) "$kind with no date, $label" else "$kind from ${item.takenOn}") + if (added) ", already added" else ""
+                contentDescription = (if (item.dateKnown) "$kind from ${item.takenOn}" else "$kind with no date") +
+                    (label?.let { ", $it" } ?: "") + if (added) ", already added" else ""
                 toggleableState = if (selected) ToggleableState.On else ToggleableState.Off
             }
             .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary) else Modifier),

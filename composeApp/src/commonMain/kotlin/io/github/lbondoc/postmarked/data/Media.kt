@@ -6,6 +6,7 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.github.lbondoc.postmarked.domain.geo.LatLng
+import io.github.jan.supabase.postgrest.postgrest
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -209,6 +210,9 @@ data class TripMedia(
     val profile: Profile? = null,
     /** When it was uploaded, for "N new from friends". */
     @SerialName("created_at") val createdAt: String? = null,
+    /** The day/time or the place was set by hand (SPEC §9.3), rather than read from the file. */
+    @SerialName("date_by_hand") val dateByHand: Boolean = false,
+    @SerialName("location_by_hand") val locationByHand: Boolean = false,
 ) {
     val swatches: List<Swatch> get() = palette.orEmpty().map { it.toSwatch() }
 
@@ -255,7 +259,7 @@ object Media {
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
             // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,profile:profiles!contributor(display_name)")
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,date_by_hand,location_by_hand,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
@@ -276,6 +280,20 @@ object Media {
         supabase.from("media").select(Columns.list("id")) {
             filter { eq("trip_id", tripId); eq("sha256", sha256) }
         }.decodeList<JsonObject>().isNotEmpty()
+
+    /**
+     * Changes a photo's moment and place (SPEC §9.3): the uploader and the trip owner only, which the server checks.
+     * A null [at] clears the place. The server marks what changed as set by hand.
+     */
+    suspend fun edit(mediaId: String, takenAt: Instant, utcOffsetMinutes: Int?, at: LatLng?) {
+        supabase.postgrest.rpc("edit_media", buildJsonObject {
+            put("p_media", mediaId)
+            put("p_captured_at", takenAt.toString())
+            put("p_utc_offset_minutes", utcOffsetMinutes)
+            put("p_lat", at?.lat)
+            put("p_lng", at?.lng)
+        })
+    }
 
     /** Adds the database row once all files are up. False when someone else added the same file first. */
     suspend fun add(upload: QueuedUpload, sha256: String, dhash: Long?, sharpness: Double?, palette: List<Swatch>): Boolean = try {
