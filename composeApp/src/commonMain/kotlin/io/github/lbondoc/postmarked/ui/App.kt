@@ -51,6 +51,7 @@ import kotlinx.serialization.Serializable
 @Serializable private object NewTripRoute
 @Serializable private data class TripRoute(val id: String)
 @Serializable private data class ImportRoute(val tripId: String)
+@Serializable private data class EditTripRoute(val tripId: String)
 @Serializable private data class MapRoute(val tripId: String)
 @Serializable private data class SummariesRoute(val tripId: String)
 @Serializable private data class SummaryRoute(val tripId: String, val summaryId: String? = null)
@@ -143,10 +144,14 @@ private fun SignedIn(
                 onAddMedia = { nav.navigate(ImportRoute(tripId)) },
                 onOpenMap = { nav.navigate(MapRoute(tripId)) },
                 onOpenSummaries = { nav.navigate(SummariesRoute(tripId)) },
+                onEditTrip = { nav.navigate(EditTripRoute(tripId)) },
                 onShare = onShare,
                 videoPlayer = videoPlayer,
                 photoSaver = photoSaver,
             )
+        }
+        composable<EditTripRoute> { entry ->
+            EditTripScreen(entry.toRoute<EditTripRoute>().tripId, onBack = { nav.popBackStack() })
         }
         composable<SummariesRoute> { entry ->
             val tripId = entry.toRoute<SummariesRoute>().tripId

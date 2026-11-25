@@ -170,7 +170,7 @@ See SPEC §9.
   Check: `./supabase/tests/run.sh` (new `trip_edit_test.sql`: an editor can rename the trip and change its dates,
   start and end points and regions through `set_trip_regions`; a viewer can do none of these; shortening the dates
   past a note is refused; shortening to a range that still holds every note works)
-- [ ] **E2 Edit trip screen.** **Edit trip** on the trip page, for editors and the owner. It reuses the New trip
+- [x] **E2 Edit trip screen.** **Edit trip** on the trip page, for editors and the owner. It reuses the New trip
   form and `NewTripViewModel` filled in with the trip, and saves the name, dates, start and end points, and regions.
   A refusal from E1 is shown as the form's error.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*EditTripTest*'` (the form starts with the trip's

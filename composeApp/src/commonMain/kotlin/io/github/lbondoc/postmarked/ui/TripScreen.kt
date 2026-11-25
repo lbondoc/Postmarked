@@ -245,6 +245,7 @@ fun TripScreen(
     onAddMedia: () -> Unit,
     onOpenMap: () -> Unit,
     onOpenSummaries: () -> Unit,
+    onEditTrip: () -> Unit,
     onShare: (String) -> Unit,
     videoPlayer: VideoPlayer,
     photoSaver: PhotoSaver,
@@ -291,6 +292,7 @@ fun TripScreen(
             TopAppBar(
                 title = { Text(trip?.name ?: "Trip") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                actions = { if (trip?.myRole?.canEdit == true) TextButton(onClick = onEditTrip) { Text("Edit") } },
             )
         },
         bottomBar = {

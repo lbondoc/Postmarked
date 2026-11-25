@@ -1353,3 +1353,34 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     through a direct update. Shortening to a range that still holds the note works, and a rename doesn't trip
     the check. The test deletes its trip at the end, because `trips_test.sql` (unchanged) expects an empty table.
   - `npm test` → exit 0.
+
+## E2 Edit trip screen
+- Changes:
+  - `ui/TripForm.kt` (new): `TripForm` (name, dates, regions, optional start and end points) with `canSave`: a
+    name, dates in order, and at least one region. `tripEdit(original, form)` returns what Save sends: the whole
+    form, with regions replaced whole, or null when nothing changed (outer spaces in the name don't count).
+    `EditableTrip.toForm()` fills the form from the stored trip.
+  - `data/Trips.kt`: `TripPoint`, `EditableTrip` (read with the existing `start_geojson`, `end_geojson` and
+    `geojson` columns), `forEditing(id)`, and `edit(...)`, which calls E1's `edit_trip`. `create` shares the
+    request body and now also sends start and end points when they are set.
+  - `ui/NewTripScreen.kt`: `NewTripViewModel(editing)` keeps the form in the view model and loads the trip when
+    editing. `EditTripScreen` is the same screen titled "Edit trip" with **Save changes**. Search results gain
+    **Start** and **End** buttons, which set that point at the place's centre; chips show and clear them. The
+    date picker opens on the current dates. Save is enabled only when `canSave`, sends nothing if unchanged, and
+    goes back to the trip, which reloads. E1's refusal ("Day 6 (Wed 07 Oct) has a note…") shows as the form's
+    error, through `ScreenModel.run`.
+  - `ui/TripScreen.kt` and `ui/App.kt`: an **Edit** button in the trip page's top bar for editors and the owner,
+    and the `EditTripRoute`.
+  - `core/domain/.../geo/Places.kt`: `Place.centre()`, the middle of a place's bounding box, used for start and
+    end points. E6 reuses it for photo locations.
+- Verification:
+  - Check `EditTripTest` → `tests="4" failures="0"`: the form starts with the trip's values, read from a stored
+    row (dates, both regions with outlines, the start point, no end point). No changes, or a name differing only
+    in spaces, sends nothing, and a rename is sent trimmed. An end before the start disables Save, as do a blank
+    name, no regions or no start, but a one-day trip is fine. A changed region list is sent whole, with the rest
+    of the form.
+  - `PlacesTest` → `tests="5" failures="0"` (new: the centre of a polygon and of a two-part MultiPolygon, and
+    null with no coordinates).
+  - `:composeApp:compileKotlinWasmJs` passes; `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the phone. Shorten a trip past a day note, check that the message appears
+  and nothing is saved, then move the note and save again.
