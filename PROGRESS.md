@@ -1186,3 +1186,27 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).
+
+## S4 Crop ratio picker
+- Changes:
+  - `data/Summaries.kt`: `Crop` gains `aspect` (width / height; null = Original) and `free`. `tileAspect(tile,
+    photoAspect)` gives the shape a tile's photo is laid out at: the chosen shape, else the photo's own. Old saved
+    crops have neither field and load as Original.
+  - `ui/SummaryCanvas.kt` and `ui/Export.kt`: adaptive layouts are arranged with `tileAspect` instead of the
+    photo's shape, so choosing 4:5 reflows the layout and the slot, and therefore the exported crop, is 4:5.
+  - `ui/PhotoLooks.kt`: the Crop tab gets Original, 1:1, 4:5, 3:4, 16:9 and Free (a slider from 1:2 to 2:1,
+    on a log scale so both ends are as far from square). The preview frame takes the chosen shape. In strict
+    grids (3 × 3, 2 × 3, profile grid) there is no picker, only "Shape 1:1: this layout's tiles have fixed
+    shapes", and `arrange` ignores any saved shape there.
+  - `ui/SummaryScreens.kt`: passes `adaptive` to the editor.
+- Approach: the ratio lives on `Crop` because it is saved with the tile and travels with it when tiles are swapped.
+  Saved looks (`LookData`) are colour only and stay that way. The task's "saved looks keep the ratio" means the
+  saved summary keeps it, which `SavedLooksTest` checks. Strict layouts needed no new code: `arrange` already
+  ignores shapes for them.
+- Verification:
+  - Check `SavedLooksTest` → `tests="4" failures="0"` (new case: a shape survives saving; a crop saved before S4
+    loads as Original; `tileAspect` picks the chosen shape over the photo's).
+  - Check `ExportGeometryTest` → `tests="8" failures="0"` (new case: in every adaptive layout a photo cropped to
+    4:5 gets a 4:5 slot and a 4:5 export crop; the 3 × 3 grid stays square).
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the phone that dragging the Free slider reflows smoothly.

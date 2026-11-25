@@ -71,6 +71,7 @@ import io.github.lbondoc.postmarked.domain.summary.Layout
 import io.github.lbondoc.postmarked.domain.summary.SongCredit
 import io.github.lbondoc.postmarked.domain.summary.caption
 import io.github.lbondoc.postmarked.data.Crop
+import io.github.lbondoc.postmarked.data.tileAspect
 import io.github.lbondoc.postmarked.domain.summary.cropRegion
 import io.github.lbondoc.postmarked.domain.summary.fit
 import io.github.lbondoc.postmarked.domain.summary.postingOrder
@@ -178,7 +179,7 @@ private fun DrawScope.whole(d: Drawing) {
     val border = theme.exportBorder * w
     // Adaptive layouts follow each photo's own shape, which the downloaded pictures tell exactly.
     val arranged = d.layout.arrange(List(d.layout.slots.size) { i ->
-        d.summary.tiles.getOrNull(i)?.media?.let { d.pictures[it] }?.let { it.width.toDouble() / it.height }
+        d.summary.tiles.getOrNull(i)?.let { t -> t.media?.let { tileAspect(t, d.pictures[it]?.let { p -> p.width.toDouble() / p.height }) } }
     })
     val canvas = fit(arranged.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
     drawRect(c.paper.color(), Offset(canvas.left.toFloat(), canvas.top.toFloat()), Size(canvas.width.toFloat(), canvas.height.toFloat()))

@@ -27,9 +27,17 @@ data class SummaryTile(
     val ownLook: Boolean = false,
 )
 
-/** Which part of a photo a tile shows: centred on ([x], [y]), fractions of the photo, [zoom] times closer. */
+/**
+ * Which part of a photo a tile shows: centred on ([x], [y]), fractions of the photo, [zoom] times closer.
+ * [aspect] (width / height) is the shape chosen in the editor, null for the photo's own ("Original"); [free]
+ * says it came from the Free slider rather than a preset. Adaptive layouts use it in place of the photo's shape;
+ * strict grids ignore it, because their tiles have fixed shapes.
+ */
 @Serializable
-data class Crop(val x: Double = 0.5, val y: Double = 0.5, val zoom: Double = 1.0)
+data class Crop(val x: Double = 0.5, val y: Double = 0.5, val zoom: Double = 1.0, val aspect: Double? = null, val free: Boolean = false)
+
+/** The shape [tile]'s photo is laid out at: the crop's chosen shape, else the photo's own ([photoAspect]). */
+fun tileAspect(tile: SummaryTile, photoAspect: Double?): Double? = tile.crop?.aspect ?: photoAspect
 
 /**
  * A filter and adjustments as saved: names rather than the app's own types, so a name a newer

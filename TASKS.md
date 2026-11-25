@@ -133,7 +133,7 @@ must pass as well.
   (SPEC §8.4). Adaptive layouts use each photo's ratio.
   Check: `./gradlew :core:domain:jvmTest --tests '*JustifyTest*'` (each row exactly fills $W$, a portrait stays
   portrait, and one very wide photo gets a row to itself)
-- [ ] **S4 Crop ratio picker.** Original (default), 1:1, 4:5, 3:4, 16:9 and Free in the per-photo editor. It
+- [x] **S4 Crop ratio picker.** Original (default), 1:1, 4:5, 3:4, 16:9 and Free in the per-photo editor. It
   reflows adaptive layouts and is locked to the tile's ratio in strict grids. Saved looks keep the ratio.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*SavedLooksTest*'` and
   `./gradlew :core:domain:jvmTest --tests '*ExportGeometryTest*'` (the exported crop matches the chosen ratio)

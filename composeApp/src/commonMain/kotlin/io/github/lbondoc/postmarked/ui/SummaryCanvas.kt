@@ -63,6 +63,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import io.github.lbondoc.postmarked.data.Crop
+import io.github.lbondoc.postmarked.data.tileAspect
 import io.github.lbondoc.postmarked.domain.summary.Box as DomainBox
 import io.github.lbondoc.postmarked.domain.summary.cropRegion
 import io.github.lbondoc.postmarked.data.SummaryTile
@@ -104,7 +105,7 @@ fun SummaryCanvas(
 ) {
     // Adaptive layouts follow each photo's shape (SPEC §8.4): measured as the pictures load, then reflowed.
     val aspects = rememberPictureAspects(tiles, pictures)
-    val arranged = remember(layout, aspects, tiles.size) { layout.arrange(List(layout.slots.size) { i -> tiles.getOrNull(i)?.media?.let { aspects[it] } }) }
+    val arranged = remember(layout, aspects, tiles.size) { layout.arrange(List(layout.slots.size) { i -> tiles.getOrNull(i)?.let { t -> t.media?.let { tileAspect(t, aspects[it]) } } }) }
     val slots = arranged.slots
     // The gesture below runs for as long as a finger is down; these let it see the latest values.
     val tap by rememberUpdatedState(onTap)

@@ -28,4 +28,14 @@ class SavedLooksTest {
         val back = json.decodeFromString<LookData>(json.encodeToString(LookData.serializer(), look.toData())).toLook()
         assertEquals(look.copy(adjust = mapOf(Adjustment.Fade to 0.3)), back) // untouched sliders aren't stored
     }
+
+    @Test
+    fun aCropShapeIsSavedAndOldCropsLoadAsOriginal() {
+        val tile = SummaryTile(media = "abc", crop = Crop(0.3, 0.6, 1.5, aspect = 0.8))
+        assertEquals(tile, json.decodeFromString<SummaryTile>(json.encodeToString(SummaryTile.serializer(), tile)))
+        val old = json.decodeFromString<SummaryTile>("""{"media": "abc", "crop": {"x": 0.3, "y": 0.6, "zoom": 1.5}}""")
+        assertEquals(null, old.crop?.aspect) // saved before S4: the photo's own shape
+        assertEquals(1.5, tileAspect(old, 1.5))
+        assertEquals(0.8, tileAspect(tile, 1.5)) // a chosen shape replaces the photo's
+    }
 }
