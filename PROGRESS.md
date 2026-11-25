@@ -1281,3 +1281,22 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     and deleting the trip deletes its links.
   - `npm test` → exit 0.
 
+## W2 `share` Edge Function
+- Changes:
+  - `supabase/functions/share/index.ts` (new): `POST {"token"}` with no sign-in. A malformed, unknown or revoked
+    token gets 404 before anything else is read or signed. For a live token it returns the trip's name, dates,
+    start and end labels and theme, its day notes, and its media rows with only the taker's display name (no
+    contributor id, no emails). Each item comes with signed links, valid 1 hour, to `thumb.jpg` plus `display.jpg`
+    (photos) or `poster.jpg` (videos), all from one batch signing call. It never signs `original` or `video.mp4`.
+    It answers the browser's CORS preflight, since the website is on another origin.
+  - It reads with `SUPABASE_SERVICE_ROLE_KEY`, which Supabase gives every Edge Function, through the REST and
+    Storage HTTP APIs. Like `route`, it takes its dependencies as `Deps`, so tests run offline.
+- Verification:
+  - Check `deno test supabase/functions/` → `11 passed | 0 failed`. The new `share/index_test.ts` has 5 tests: a
+    live token gets the trip, notes and media with signed links, and a revoked, unknown or malformed token gets
+    404 with nothing signed. The response contains no `original` and no `@`, and only thumb, display and poster
+    are signed. One signing call asks for `expiresIn: 3600`. Only POST is answered, and the preflight gets CORS
+    headers.
+  - `npm test` → exit 0.
+- Follow-ups: **needs deploying** with `supabase functions deploy share` and the migration applied. Nothing is
+  deployed from this sandbox.

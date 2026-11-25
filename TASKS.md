@@ -152,7 +152,7 @@ must pass as well.
 - [x] **W1 trip_shares table.** A migration with RLS: editors create and revoke, nobody reads tokens through
   PostgREST except the creator.
   Check: `./supabase/tests/run.sh` (new `shares_test.sql`)
-- [ ] **W2 `share` Edge Function.** Check the token and return the trip, media and signed URLs for thumb, display
+- [x] **W2 `share` Edge Function.** Check the token and return the trip, media and signed URLs for thumb, display
   and poster only.
   Check: `deno test supabase/functions/` (new `share/index_test.ts`: a revoked or unknown token gets 404, the
   response has no `original` path and no emails, and signed URLs expire in 1 hour)
