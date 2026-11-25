@@ -1333,3 +1333,23 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     from npm, as in the notes above) and the web build ran with `-x kotlinWasmToolingSetup`.
 - Follow-ups: **needs manual check** with the deployed function: open a real link in a private window, then turn
   it off and reload.
+
+## E1 Trip edits keep day notes inside the dates
+- Changes:
+  - `supabase/migrations/20261202000000_trip_edit.sql` (new): a `before update of start_date, end_date` trigger
+    on `trips`. If a day note would fall outside the new dates, the save is refused with "Day 6 (Wed 07 Oct)
+    has a note. Delete or move it first." (`check_violation`). Days are counted from the old start, as the person
+    knows them. Nothing is deleted.
+  - `edit_trip(trip, name, start, end, regions, start_point, end_point)` saves the Edit trip form (E2) in one
+    transaction, so a refused date change can't leave the regions half-saved. It reuses `_point` and
+    `_replace_regions` from M1 and is for owners and editors only. `set_trip_regions` is unchanged.
+- Approach: SPEC §9.1 settled "block until moved". The trigger lives on `trips`, so a direct PostgREST update is
+  covered as well as the function.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `trip_edit_test.sql` checks that an editor
+    renames (trimmed) and changes the dates, start and end points and regions, and can clear the points. It checks
+    that `set_trip_regions` still works for editors and that a viewer can do none of it. Shortening past a note
+    is refused with the exact message and leaves the dates and note as they were, both through `edit_trip` and
+    through a direct update. Shortening to a range that still holds the note works, and a rename doesn't trip
+    the check. The test deletes its trip at the end, because `trips_test.sql` (unchanged) expects an empty table.
+  - `npm test` → exit 0.

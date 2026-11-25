@@ -165,7 +165,7 @@ must pass as well.
 
 See SPEC §9.
 
-- [ ] **E1 Trip edits keep day notes inside the dates.** A migration with a `before update` trigger on `trips`:
+- [x] **E1 Trip edits keep day notes inside the dates.** A migration with a `before update` trigger on `trips`:
   changing `start_date` or `end_date` so a day note falls outside them is refused with the day in the message.
   Check: `./supabase/tests/run.sh` (new `trip_edit_test.sql`: an editor can rename the trip and change its dates,
   start and end points and regions through `set_trip_regions`; a viewer can do none of these; shortening the dates
