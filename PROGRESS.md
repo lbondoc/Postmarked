@@ -1384,3 +1384,25 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
   - `:composeApp:compileKotlinWasmJs` passes; `npm test` → exit 0.
 - Follow-ups: **needs manual check** on the phone. Shorten a trip past a day note, check that the message appears
   and nothing is saved, then move the note and save again.
+
+## E3 Media date and place can be edited
+- Changes:
+  - `supabase/migrations/20261203000000_media_edit.sql` (new): `media.date_by_hand` and
+    `media.location_by_hand` (boolean, default false), with an insert grant so an upload can say its day was
+    chosen (E4). `edit_media(media, captured_at, utc_offset_minutes, lat, lng)` is security definer and lets
+    only the uploader and the trip owner change the date, time zone and place. Changing the date or zone marks
+    `date_by_hand`, a new place marks `location_by_hand`, and lat and lng both null clear the place (and the
+    mark). A missing date, half a place, or a place off the map is refused (the latter through M1's `_point`).
+- Approach (differs from the task's wording): the task suggested an update policy plus a column grant. M5's
+  "owner and editors fill in palettes" policy already lets every editor update media rows, and Postgres ORs
+  policies together. A grant on `captured_at` and `location` would therefore let any editor move anyone's photo,
+  not just the uploader and owner that SPEC §9.3 settled on. A function that checks the caller itself has no such
+  gap, and there is still no update grant on the date, place, trip, contributor or fingerprint columns.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `media_edit_test.sql` checks the following.
+    Camera values aren't marked, and an upload can insert `date_by_hand`. The uploader and the owner can change
+    the date and place, and both get marked; another editor and a viewer can't, either through the function or
+    with a direct `update` of the date or place. Nobody, including the owner and uploader, can change `trip_id`,
+    `contributor` or `sha256`. A place can be cleared, which unmarks it. A missing date, half a place and an
+    off-map place are refused. The test deletes its trip at the end.
+  - `npm test` → exit 0.

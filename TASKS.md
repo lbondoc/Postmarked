@@ -176,7 +176,7 @@ See SPEC §9.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*EditTripTest*'` (the form starts with the trip's
   values, saving with no changes sends nothing, an end date before the start disables Save, and a changed region
   list is sent whole) `&& ./gradlew :composeApp:compileKotlinWasmJs`
-- [ ] **E3 Media date and place can be edited.** A migration adding `media.date_by_hand` and
+- [x] **E3 Media date and place can be edited.** A migration adding `media.date_by_hand` and
   `media.location_by_hand` (boolean, default false), an update policy for the uploader and the trip owner, and an
   update grant on only `captured_at`, `utc_offset_minutes`, `location`, `date_by_hand` and `location_by_hand`.
   Check: `./supabase/tests/run.sh` (new `media_edit_test.sql`: the uploader and the owner can change the date and
