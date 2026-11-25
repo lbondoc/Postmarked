@@ -179,6 +179,14 @@ interface CameraRoll {
      */
     val pickedByHand: Boolean get() = false
 
+    /**
+     * Picks any photos or videos, whatever their dates, through the system's own picker (SPEC §9.2: "Add from
+     * anywhere"), read the way the website reads picked files. Null when nothing was picked; [canPickAnywhere]
+     * is false where there's no such picker beside [scan] (the website's [scan] already is one).
+     */
+    suspend fun pickAnywhere(): ScanResult? = null
+    val canPickAnywhere: Boolean get() = false
+
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri
 }

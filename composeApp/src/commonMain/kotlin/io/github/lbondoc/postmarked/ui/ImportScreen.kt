@@ -143,9 +143,19 @@ class ImportViewModel(private val tripId: String) : ScreenModel() {
         val zone = TimeZone.currentSystemDefault()
         val from = trip.start.minus(LOOK_AROUND_DAYS, DateTimeUnit.DAY).atStartOfDayIn(zone)
         val until = trip.end.plus(LOOK_AROUND_DAYS + 1, DateTimeUnit.DAY).atStartOfDayIn(zone)
-        val result = sortForTrip(cameraRoll.scan(from.toEpochMilliseconds(), until.toEpochMilliseconds()), trip)
+        show(cameraRoll.scan(from.toEpochMilliseconds(), until.toEpochMilliseconds()), trip, alreadyAdded, cameraRoll.pickedByHand)
+    }
+
+    /** "Add from anywhere" (SPEC §9.2): the system picker's files replace the scan, all ticked, as on the website. */
+    fun pickAnywhere(cameraRoll: CameraRoll, alreadyAdded: Set<String>) = run {
+        val picked = cameraRoll.pickAnywhere() ?: return@run
+        show(picked, Trips.bounds(tripId), alreadyAdded, pickedByHand = true)
+    }
+
+    private fun show(scan: ScanResult, trip: TripBounds, alreadyAdded: Set<String>, pickedByHand: Boolean) {
+        val result = sortForTrip(scan, trip)
         selected.clear()
-        selected += startTicked(result, alreadyAdded, cameraRoll.pickedByHand)
+        selected += startTicked(result, alreadyAdded, pickedByHand)
         tripDays = generateSequence(trip.start) { it.plus(1, DateTimeUnit.DAY) }.takeWhile { it <= trip.end }.toList()
         days.clear()
         for (item in result.noDate) suggestedDay(item, trip.start, trip.end)?.let { days[item.uri] = it }
@@ -212,6 +222,7 @@ fun ImportScreen(
                 title = { Text("Add photos and videos") },
                 navigationIcon = { TextButton(onClick = onDone) { Text("Back") } },
                 actions = {
+                    if (cameraRoll.canPickAnywhere) TextButton(onClick = { vm.pickAnywhere(cameraRoll, added) }, enabled = !vm.busy) { Text("From anywhere") }
                     val selectable = vm.all().filterNot { it.uri in added }
                     if (selectable.isNotEmpty()) {
                         val allOn = selectable.all { it.uri in vm.selected }
@@ -256,7 +267,10 @@ fun ImportScreen(
                 }
                 vm.error != null -> Message(vm.error!!) { TextButton(onClick = { vm.load(cameraRoll, added) }) { Text("Try again") } }
                 found == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                found.isEmpty -> Message("No photos or videos from this trip's dates are on this phone.")
+                found.isEmpty -> Message(
+                    "No photos or videos from this trip's dates are on this phone." +
+                        if (cameraRoll.canPickAnywhere) " Tap From anywhere to pick others, like screenshots or older photos." else "",
+                )
                 else -> LazyVerticalGrid(
                     state = gridState,
                     // Press and hold on a photo, then drag across others to tick (or untick) the whole run.

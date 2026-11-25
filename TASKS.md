@@ -190,7 +190,7 @@ See SPEC §9.
   (new cases: no EXIF date gives `dateKnown = false`, with the suggested day only when it is inside the trip;
   Add stays disabled while a ticked undated item has no day; a chosen day with no time gives noon on that day in
   the device zone with no UTC offset) `&& node web/smoke.mjs`
-- [ ] **E5 Add from anywhere on Android.** The system photo picker (`PickMultipleVisualMedia`), EXIF read from
+- [x] **E5 Add from anywhere on Android.** The system photo picker (`PickMultipleVisualMedia`), EXIF read from
   each picked file with `readExif`, then `pickedMedia` and the same review screen as the web (`pickedByHand` true for
   this flow).
   Check: `./gradlew :androidApp:assembleDebug`, then on the phone: pick a screenshot and a photo from a year ago.

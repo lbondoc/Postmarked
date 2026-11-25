@@ -1436,3 +1436,26 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
   - Check `node web/smoke.mjs` → passed (and `--share` still passes). `npm test` → exit 0.
 - Follow-ups: **needs manual check** on the website. Pick a screenshot, choose Day 2, add it, and see it under
   Day 2 in the gallery.
+
+## E5 Add from anywhere on Android
+- Changes:
+  - `data/Media.kt`: `CameraRoll` gains `pickAnywhere()` and `canPickAnywhere`, both off by default. The website's
+    picker already is "anywhere", and iOS has no camera roll yet.
+  - `androidApp/.../AndroidCameraRoll.kt`: Android's system photo picker (`PickMultipleVisualMedia`, up to 100
+    items, no permission needed), registered in `onCreate` like the permission request. Each picked file is
+    read the way the website reads one: up to 128 KB of a photo through the shared `readExif`, then
+    `pickedMedia`, with the file's `DATE_MODIFIED` as the suggested day (E4). The app takes a persistable read
+    grant on each address, because uploads run later in WorkManager, perhaps after a restart.
+  - `androidApp/.../CameraRollFiles.kt`: `originalUri` doesn't ask for the original on picker addresses
+    (`content://media/picker/...`), which aren't MediaStore items and refuse it.
+  - `ui/ImportScreen.kt`: **From anywhere** in the review screen's top bar where the platform has a picker. The
+    picked files replace the scan, all ticked (`pickedByHand`), and go through the same sections, including No
+    date in the file. The empty "nothing from these dates" message points to it.
+- Verification:
+  - Check `./gradlew :androidApp:assembleDebug` → `BUILD SUCCESSFUL`, as part of `npm test` → exit 0. The fresh
+    APK's dex contains `pickAnywhere`.
+  - **Needs manual check** on the phone, as the task describes: pick a screenshot and a photo from a year ago.
+    The screenshot should land in No date in the file, and after choosing Day 2 it should show under Day 2 in
+    the gallery.
+- Follow-ups: Android's photo picker removes location data from the files it hands out, so photos picked this
+  way have no GPS. They land in No location saved, or in No date in the file, and E6 lets people set the place.
