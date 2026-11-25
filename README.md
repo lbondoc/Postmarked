@@ -50,6 +50,7 @@ to `index.json`.
 | `androidApp` | Android entry point: Activity, manifest, share sheet, QR scanner, camera-roll reading, background uploads. |
 | `supabase/migrations` | Database schema and access rules, applied to the Supabase project in filename order. |
 | `supabase/functions/route` | Server function that joins stops along roads via Stadia Maps, keeping the Stadia key off phones. Tests: `deno test supabase/functions/`. |
+| `supabase/functions/share` | Server function behind share links: checks the token and returns the trip with short-lived links to its small images. |
 | `supabase/tests` | SQL tests for those rules; `supabase/tests/run.sh` runs them on any local Postgres with PostGIS. |
 
 ## Website
@@ -95,6 +96,12 @@ uninstall the previous build before installing a new one.
    - Edge Functions → Deploy a new function → Via Editor: name it `route`, paste
      `supabase/functions/route/index.ts`, turn off JWT verification (the function checks the
      sign-in itself), deploy.
+
+6. Share links (anyone with the link sees a trip read-only on the website, SPEC §7):
+   - Apply `supabase/migrations/20261201000000_trip_shares.sql` (SQL editor, as with the others).
+   - Edge Functions → Deploy a new function → Via Editor: name it `share`, paste
+     `supabase/functions/share/index.ts`, turn off JWT verification (people opening a link have no account;
+     the token is the check), deploy. It reads with the service role key Supabase gives every function.
 
 Stadia's free plan covers development and non-commercial use; commercial use starts at their
 Starter plan. Map tiles come from OpenFreeMap, which needs no key.

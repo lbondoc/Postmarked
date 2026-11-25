@@ -69,9 +69,15 @@ fun App(
     exporter: Exporter,
     photoSaver: PhotoSaver,
     lastCrash: String? = null,
+    /** A share link's token (web `#/s/<token>`): show that trip read-only, signed in or not. */
+    sharedToken: String? = null,
 ) {
     setSingletonImageLoaderFactory(::imageLoader) // every image cached by its Storage path
     PostmarkedTheme {
+        if (sharedToken != null) {
+            SharedTripScreen(sharedToken)
+            return@PostmarkedTheme
+        }
         var crash by remember { mutableStateOf(lastCrash) }
         crash?.let { report ->
             AlertDialog(

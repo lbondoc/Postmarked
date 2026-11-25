@@ -11,6 +11,8 @@ import io.github.lbondoc.postmarked.data.supabase
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.browser.document
+import kotlinx.browser.window
+import io.github.lbondoc.postmarked.data.shareTokenOf
 
 /** The website: the same App() as the phone, with the browser's versions of the platform pieces. */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -29,6 +31,7 @@ fun main() {
             videoPlayer = { url, modifier -> WebVideo(url, modifier) },
             exporter = WebExporter,
             photoSaver = WebPhotoSaver,
+            sharedToken = shareTokenOf(window.location.hash),
         )
     }
 }

@@ -156,7 +156,7 @@ must pass as well.
   and poster only.
   Check: `deno test supabase/functions/` (new `share/index_test.ts`: a revoked or unknown token gets 404, the
   response has no `original` path and no emails, and signed URLs expire in 1 hour)
-- [ ] **W3 Read-only share view on the website.** The `#/s/<token>` route with no sign-in. Editing controls are
+- [x] **W3 Read-only share view on the website.** The `#/s/<token>` route with no sign-in. Editing controls are
   hidden. Turning the link on or off and the map warning live in trip settings.
   Check: `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs --share` (the smoke test stubs the
   `share` function and checks the gallery renders with no sign-in screen)

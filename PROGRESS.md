@@ -1300,3 +1300,36 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
   - `npm test` → exit 0.
 - Follow-ups: **needs deploying** with `supabase functions deploy share` and the migration applied. Nothing is
   deployed from this sandbox.
+
+## W3 Read-only share view on the website
+- Changes:
+  - `data/Shares.kt` (new): `shareLink(token)` gives `https://lbondoc.github.io/Postmarked/#/s/<token>`, and
+    `shareTokenOf(hash)` reads the token back. `Shares` has `open` (calls the `share` function with no
+    sign-in), plus `isOn`, `myToken`, `create` and `revoke` (W1's functions and table) for the trip page.
+  - `ui/SharedTripScreen.kt` (new): the read-only trip. It shows the name and dates, the route drawn on paper,
+    photos by day with that day's note in handwriting, and a full-screen swipe viewer with who took each photo.
+    The route is straight lines between stops, because road routing needs an account and the shape of the trip
+    is what matters here. Videos show their poster and say to play them in the app, because the function signs
+    no video files. There are no editing controls at all.
+  - `ui/App.kt`: `App(sharedToken = …)` shows that screen instead of sign-in. `webApp/.../Main.kt` passes the
+    token from `window.location.hash`.
+  - `ui/TripScreen.kt`: editors get **Share link** next to Invite. The dialog warns that anyone with the link can
+    see the photos, day notes and a map of where you went, without an account. It turns the link on (**Make a
+    new link** if another editor's link is live, since only its creator can read that token), sends the link,
+    or turns it off.
+  - `web/smoke.mjs --share`: stubs the `share` function and the image links with Playwright routes, opens
+    `#/s/<token>`, and requires the trip heading, a Day 1 heading and a photo button, with no Sign in button and
+    no console errors. The default run is unchanged. CI's web job runs both.
+  - `README.md`: setup step 6 explains deploying `share` with JWT verification off. People opening a link have
+    no account, and the publishable key isn't a JWT.
+- Verification:
+  - Check `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs --share` → "smoke test passed:
+    shared trip gallery rendered with no console errors". The screenshot shows the heading, dates, route, both
+    days and the day note. The plain `node web/smoke.mjs` still passes.
+  - `ShareLinkTest` → `tests="2" failures="0"` (the link round-trips; other addresses and malformed tokens are
+    not share links).
+  - `npm test` → exit 0.
+  - Sandbox: this container started fresh, so the wasm tooling folder was set up by hand again (karma 6.4.4
+    from npm, as in the notes above) and the web build ran with `-x kotlinWasmToolingSetup`.
+- Follow-ups: **needs manual check** with the deployed function: open a real link in a private window, then turn
+  it off and reload.
