@@ -70,6 +70,15 @@ data class DeviceMedia(
     val utcOffsetMinutes: Int? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    /**
+     * False when the file has no date of its own (no EXIF date: screenshots, messaging-app copies, scans, and every
+     * video picked on the web). [capturedAtMs] and [takenOn] are then only the file's modified time, a suggestion
+     * the person confirms by choosing a trip day (SPEC §9.2).
+     */
+    val dateKnown: Boolean = true,
+    /** The person chose the day (and maybe time), or the place: uploaded as date_by_hand / location_by_hand. */
+    val dateByHand: Boolean = false,
+    val locationByHand: Boolean = false,
 ) {
     // A property with only a getter is not stored, so it is not part of the saved JSON.
     val location: LatLng? get() = if (lat != null && lng != null) LatLng(lat, lng) else null
@@ -270,6 +279,8 @@ object Media {
             upload.item.utcOffsetMinutes?.let { put("utc_offset_minutes", it) }
             upload.item.location?.let { put("location", "SRID=4326;POINT(${it.lng} ${it.lat})") }
             put("sha256", sha256)
+            if (upload.item.dateByHand) put("date_by_hand", true)
+            if (upload.item.locationByHand) put("location_by_hand", true)
             dhash?.let { put("dhash", it) }
             sharpness?.let { put("sharpness", it) }
             put("palette", Json.encodeToJsonElement(palette.toEntries()))

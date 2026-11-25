@@ -182,7 +182,7 @@ See SPEC §9.
   Check: `./supabase/tests/run.sh` (new `media_edit_test.sql`: the uploader and the owner can change the date and
   location; another editor and a viewer can't; nobody can change `trip_id`, `contributor` or `sha256`; a
   location can be cleared to null)
-- [ ] **E4 Files with no date.** `DeviceMedia` gains `dateKnown`. `pickedMedia` sets it false when the file has
+- [x] **E4 Files with no date.** `DeviceMedia` gains `dateKnown`. `pickedMedia` sets it false when the file has
   no EXIF date, and the modified time becomes only the suggested day. The review screen gets a **No date in the
   file** section, where each ticked item needs a trip day (time optional) before **Add** is enabled. Uploads send
   `date_by_hand = true` for these.

@@ -1406,3 +1406,33 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     `contributor` or `sha256`. A place can be cleared, which unmarks it. A missing date, half a place and an
     off-map place are refused. The test deletes its trip at the end.
   - `npm test` → exit 0.
+
+## E4 Files with no date
+- Changes:
+  - `data/Media.kt`: `DeviceMedia` gains `dateKnown` (default true), plus `dateByHand` and `locationByHand`.
+    These have defaults, so queued uploads saved by an older build still load. `Media.add` sends `date_by_hand` and
+    `location_by_hand` (E3's columns) when they are true.
+  - `data/PickedFiles.kt`: `pickedMedia` sets `dateKnown = false` when the file has no EXIF date. The modified
+    time stays on the item, but only as a suggestion. The web used to use it as the date without asking, which
+    is wrong for screenshots and copies. `suggestedDay(item, start, end)` gives that day only when it falls
+    within the trip.
+  - `ui/ImportScreen.kt`: `sortForTrip` puts files with no date in a new `Found.noDate` group, since they can't
+    be matched by date, and the review screen shows it first as **No date in the file**. Picked-by-hand files
+    there start ticked, like the rest. Each cell shows its chosen day ("Day 2") or "No day". **Set day** on the
+    section opens a picker of the trip's days, with an optional time ("14:30") that is checked as it is typed,
+    for the ticked ones. Days are pre-filled from `suggestedDay`. **Add** stays disabled until every ticked
+    undated file has a day (`readyToAdd`). `withChosenDay` dates such a file at the chosen time, or noon, in the
+    device's zone, with no UTC offset (the file recorded none), and marks it `dateByHand`.
+- Approach: the phone's camera-roll scan reads MediaStore's taken date, so its items keep `dateKnown = true`. The
+  no-date path matters for the web picker now and for Android's system picker in E5.
+- Verification:
+  - Check `PickedFilesTest` → `tests="7" failures="0"` (new case: no EXIF date gives `dateKnown = false`, with a
+    suggested day only when the modified day is inside the trip; a file with an EXIF date is known and needs no
+    suggestion). The existing "no EXIF falls back to the file date" case passes unchanged.
+  - Check `StartTickedTest` → `tests="5" failures="0"`. New cases: Add stays disabled while any ticked undated item
+    has no day, and nothing-ticked is also disabled. A chosen day with no time is noon in Los Angeles
+    (19:00 UTC), with no offset and marked by hand; 8:15 gives 15:15 UTC. Undated files start ticked only when
+    picked by hand.
+  - Check `node web/smoke.mjs` → passed (and `--share` still passes). `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the website. Pick a screenshot, choose Day 2, add it, and see it under
+  Day 2 in the gallery.

@@ -6,6 +6,7 @@ import io.github.lbondoc.postmarked.domain.media.exifDate
 import io.github.lbondoc.postmarked.domain.media.exifDateTime
 import io.github.lbondoc.postmarked.domain.media.exifOffsetMinutes
 import kotlin.time.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.UtcOffset
 import kotlinx.datetime.toInstant
@@ -42,7 +43,8 @@ fun pickedFileProblem(name: String, mimeType: String, sizeBytes: Long): String? 
 
 /**
  * A picked file as the import screen sees it. The time and place come from its EXIF when it has some, as on
- * the phone. Otherwise it gets the file's own date, which a camera's or phone's export keeps as the time taken.
+ * the phone. Otherwise it gets the file's own date, marked as not known: the modified time is often when the file
+ * was copied, not taken, so the person confirms the day (SPEC §9.2).
  * An EXIF time without an offset is read in [zone], as the phone reads it.
  */
 fun pickedMedia(uri: String, kind: MediaKind, exif: ExifInfo, lastModifiedMs: Long, zone: TimeZone): DeviceMedia {
@@ -62,5 +64,10 @@ fun pickedMedia(uri: String, kind: MediaKind, exif: ExifInfo, lastModifiedMs: Lo
         utcOffsetMinutes = offset,
         lat = gps?.lat,
         lng = gps?.lng,
+        dateKnown = clock != null,
     )
 }
+
+/** The day a file with no date of its own starts with: its modified day when that's within the trip, else none. */
+fun suggestedDay(item: DeviceMedia, start: LocalDate, end: LocalDate): LocalDate? =
+    item.takenOn.takeIf { !item.dateKnown && it in start..end }
