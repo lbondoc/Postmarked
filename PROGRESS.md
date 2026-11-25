@@ -1232,3 +1232,27 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
   - The APK contains `assets/composeResources/io.github.lbondoc.postmarked.resources/files/presets/index.json`.
   - `npm test` → exit 0.
 - Follow-ups: **needs manual check** of how each preset looks on a real trip. The values are first guesses.
+
+## S6 Carousel presets
+- Changes:
+  - `core/domain/.../summary/CarouselPlan.kt` (new): `carouselPlan(photos, perSlide, hasRoute)` returns a cover,
+    the photo slides, a route slide when there is a route, and a closing slide, never more than `MAX_SLIDES` =
+    20. Photos go in time order. A new slide starts at each day when that fits; otherwise days share slides;
+    if even that is too many, photos are picked evenly across the trip.
+  - `ui/Export.kt`: a **Trip carousel** export kind. The cover is the earliest photo above the trip's name and
+    dates. Each photo gets its own slide, drawn with the summary's look, crop and harmonizing. The route slide
+    is the road line and stops on paper, coloured by day, under "N MILES", with no map tiles; it uses the
+    same projection as the web `RouteDrawing`. The closing slide is the caption's first paragraph, without
+    hashtags. All slides use the trip's album theme paper and ink. Posting works like the existing carousel.
+  - `ui/SummaryScreens.kt`: the editor keeps the built `TripRoute` (it already built it for the miles) and
+    passes it to the export sheet.
+- Approach: one photo per slide (`perSlide = 1`), as people mostly post carousels that way; the planner takes any
+  number per slide. The photos are the summary's, so what the person picked and cropped is what gets posted.
+- Verification:
+  - Check `CarouselPlanTest` → `tests="5" failures="0"`. It checks that photos stay in time order even when given
+    out of order, and that day boundaries split slides when they fit. Days share slides when splitting would pass
+    the limit. A sweep over 0–500 photos, with and without a route, never gives more than 20 slides, and every
+    photo is shown once in order when they fit. With no route there is no route slide.
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** of the exported slides on a phone, especially text size on the cover and
+  closing slides at 3:4.

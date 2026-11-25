@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.TripRoute
 import io.github.lbondoc.postmarked.data.StylePresets
 import io.github.lbondoc.postmarked.data.StylePreset
 import kotlinx.datetime.daysUntil
@@ -231,6 +232,9 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         private set
     var miles by mutableStateOf<Int?>(null)
         private set
+    /** The road route, for the miles and a trip carousel's route slide; null until built or when it can't be. */
+    var route by mutableStateOf<TripRoute?>(null)
+        private set
     var songs by mutableStateOf<List<Song>>(emptyList())
         private set
     var presets by mutableStateOf<List<StylePreset>>(emptyList())
@@ -249,13 +253,14 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         songs = Songs.ofTrip(tripId)
         presets = StylePresets.all()
         // Miles need the road route, which can be slow or unavailable; the summary works without them.
-        miles = try {
-            (Routes.build(tripId).days.sumOf { it.meters } / METERS_PER_MILE).roundToInt()
+        route = try {
+            Routes.build(tripId)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         }
+        miles = route?.let { r -> (r.days.sumOf { it.meters } / METERS_PER_MILE).roundToInt() }
     }
 
     private fun build(m: SummaryMaterial, mode: SummaryMode, layout: Layout, focus: Oklab?, keep: Summary? = summary): Summary {
@@ -502,6 +507,7 @@ fun SummaryEditorScreen(
         if (look != null) ExportSheet(
             material, summary, vm.layout, look, vm.songs, vm.miles,
             stops = remember(material.media) { planRoute(material.media.mapNotNull { it.toRoutePoint() }).stops.size },
+            route = vm.route,
             exporter = exporter,
             onClose = { exporting = false },
         )

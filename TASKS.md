@@ -141,7 +141,7 @@ must pass as well.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*PresetsTest*'` (every file parses, is listed in
   `index.json`, and names an existing layout, style and filter). The CI APK check also greps for
   `files/presets/index.json`.
-- [ ] **S6 Carousel presets.** Cover, photo slides, route slide (road line on paper), and closing slide. At most
+- [x] **S6 Carousel presets.** Cover, photo slides, route slide (road line on paper), and closing slide. At most
   20 slides.
   Check: `./gradlew :core:domain:jvmTest --tests '*CarouselPlanTest*'` (photos stay in time order, slides split at
   day boundaries where they fit, there are never more than 20 slides, and the route slide is left out when there
