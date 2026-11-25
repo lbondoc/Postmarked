@@ -10,6 +10,12 @@ supabase/functions/`, `./supabase/tests/run.sh`, and `:composeApp:compileKotlinW
 Steps that need a phone, a Mac, or a CI run on `main` are written up as **needs manual check** rather than
 BLOCKED, and nothing gets deployed from this sandbox.
 
+**From S4 on (2026-11-25): `npm test`.** The owner's new goal gates every task on `npm test` exiting 0. A root
+`package.json` now exists for exactly that. Its `test` script is the gate above: Gradle unit tests, the debug APK,
+`compileKotlinWasmJs`, `deno test supabase/functions/` and `./supabase/tests/run.sh`. It is not a Node project.
+Each task still runs its own **Check** line too. Locally the database tests need `PGHOST=localhost PGUSER=postgres
+PGPASSWORD=postgres` for the sandbox's Postgres.
+
 **Sandbox notes (they affect local runs only, not CI).**
 - Kotlin's wasm npm tooling depends on `github:Kotlin/karma`, which this sandbox can't fetch
   (`codeload.github.com` answers 403 for repositories not attached to the session). Locally, that tooling folder
