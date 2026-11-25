@@ -160,3 +160,46 @@ must pass as well.
   hidden. Turning the link on or off and the map warning live in trip settings.
   Check: `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs --share` (the smoke test stubs the
   `share` function and checks the gallery renders with no sign-in screen)
+
+## Phase 6 — Editing trips, and photos with no date or place
+
+See SPEC §9.
+
+- [ ] **E1 Trip edits keep day notes inside the dates.** A migration with a `before update` trigger on `trips`:
+  changing `start_date` or `end_date` so a day note falls outside them is refused with the day in the message.
+  Check: `./supabase/tests/run.sh` (new `trip_edit_test.sql`: an editor can rename the trip and change its dates,
+  start and end points and regions through `set_trip_regions`; a viewer can do none of these; shortening the dates
+  past a note is refused; shortening to a range that still holds every note works)
+- [ ] **E2 Edit trip screen.** **Edit trip** on the trip page, for editors and the owner. It reuses the New trip
+  form and `NewTripViewModel` filled in with the trip, and saves the name, dates, start and end points, and regions.
+  A refusal from E1 is shown as the form's error.
+  Check: `./gradlew :composeApp:testAndroidHostTest --tests '*EditTripTest*'` (the form starts with the trip's
+  values, saving with no changes sends nothing, an end date before the start disables Save, and a changed region
+  list is sent whole) `&& ./gradlew :composeApp:compileKotlinWasmJs`
+- [ ] **E3 Media date and place can be edited.** A migration adding `media.date_by_hand` and
+  `media.location_by_hand` (boolean, default false), an update policy for the uploader and the trip owner, and an
+  update grant on only `captured_at`, `utc_offset_minutes`, `location`, `date_by_hand` and `location_by_hand`.
+  Check: `./supabase/tests/run.sh` (new `media_edit_test.sql`: the uploader and the owner can change the date and
+  location; another editor and a viewer can't; nobody can change `trip_id`, `contributor` or `sha256`; a
+  location can be cleared to null)
+- [ ] **E4 Files with no date.** `DeviceMedia` gains `dateKnown`. `pickedMedia` sets it false when the file has
+  no EXIF date, and the modified time becomes only the suggested day. The review screen gets a **No date in the
+  file** section, where each ticked item needs a trip day (time optional) before **Add** is enabled. Uploads send
+  `date_by_hand = true` for these.
+  Check: `./gradlew :composeApp:testAndroidHostTest --tests '*PickedFilesTest*' --tests '*StartTickedTest*'`
+  (new cases: no EXIF date gives `dateKnown = false`, with the suggested day only when it is inside the trip;
+  Add stays disabled while a ticked undated item has no day; a chosen day with no time gives noon on that day in
+  the device zone with no UTC offset) `&& node web/smoke.mjs`
+- [ ] **E5 Add from anywhere on Android.** The system photo picker (`PickMultipleVisualMedia`), EXIF read from
+  each picked file with `readExif`, then `pickedMedia` and the same review screen as the web (`pickedByHand` true for
+  this flow).
+  Check: `./gradlew :androidApp:assembleDebug`, then on the phone: pick a screenshot and a photo from a year ago.
+  The screenshot lands in No date in the file, and after choosing Day 2 it shows under Day 2 in the gallery.
+- [ ] **E6 Edit date and place.** **Edit date and place** in the viewer's info panel, shown to the uploader and the
+  owner. Day is chosen from the trip's days plus an optional time. Location is chosen with place search, then a
+  draggable pin on Android, place search only on the web, or cleared. It saves through E3 and marks the cached route
+  stale. The same place editor opens from the review screen for items in No location saved, before they upload.
+  The info panel shows "Date set by hand" and "Location set by hand".
+  Check: `./gradlew :composeApp:testAndroidHostTest --tests '*MediaInfoTest*'` (the by-hand lines appear only
+  when the flags are set) `&& ./gradlew :core:domain:jvmTest --tests '*RouteTest*'` (a photo with a hand-set
+  location becomes a stop like a GPS one) `&& ./gradlew :composeApp:compileKotlinWasmJs`
