@@ -53,7 +53,7 @@ jobs:
         run: ./gradlew :composeApp:compileKotlinWasmJs
       # The app's fonts and theme files must be inside the APK; without them it crashes on opening a trip.
       - name: Check the APK carries the app's resources
-        run: unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -q 'postmarked.resources/files/themes/index.json'
+        run: unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -q 'postmarked.resources/files/themes/index.json' && unzip -l androidApp/build/outputs/apk/debug/*.apk | grep -q 'postmarked.resources/files/presets/index.json'
       # Download this from the run's page to install the app on a phone without Android Studio.
       - uses: actions/upload-artifact@v4
         with:

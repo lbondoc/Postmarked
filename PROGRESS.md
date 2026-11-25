@@ -1210,3 +1210,25 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
     4:5 gets a 4:5 slot and a 4:5 export crop; the 3 × 3 grid stays square).
   - `npm test` → exit 0.
 - Follow-ups: **needs manual check** on the phone that dragging the Free slider reflows smoothly.
+
+## S5 Style presets
+- Changes:
+  - `composeResources/files/presets/`: six presets and `index.json`, in the album-themes pattern. They are
+    Scrapbook, Minimal White, Film Strip, Postcard, Night Drive and Sun-faded. Each names a layout, an automatic
+    style (`SummaryMode`), a filter with its strength, and a Match (harmonize) amount.
+  - `data/StylePresets.kt`: `StylePreset` and the loader, read once like `AlbumThemes`.
+  - `ui/SummaryScreens.kt`: a Presets row at the top of the editor's Style tab. One tap applies the preset:
+    layout and style (the tiles refill for them), then its filter and Match amount. `ui/Guided.kt`: the
+    first-summary walkthrough doesn't show the row, to keep its steps simple.
+  - `.github/workflows/ci.yml`: the APK resource check also greps for `files/presets/index.json`.
+- Approach: SPEC §8.3 also lists paper/border and text style per preset. Summaries don't have those settings:
+  paper, border, edge and text colours come from the trip's album theme (M6). Presets therefore set what a
+  summary does have, and adding per-summary paper settings was left out. A preset is applied, not remembered,
+  so changing anything afterwards just edits the summary.
+- Verification:
+  - Check `PresetsTest` → `tests="2" failures="0"`: every file parses, every file is listed in `index.json` and
+    every listed id has a file, ids are unique, there are 5–8 presets, and each names an existing layout, an
+    automatic style and a filter, with strength and Match in $[0, 1]$. An Original preset adds no look.
+  - The APK contains `assets/composeResources/io.github.lbondoc.postmarked.resources/files/presets/index.json`.
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** of how each preset looks on a real trip. The values are first guesses.

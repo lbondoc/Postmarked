@@ -137,7 +137,7 @@ must pass as well.
   reflows adaptive layouts and is locked to the tile's ratio in strict grids. Saved looks keep the ratio.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*SavedLooksTest*'` and
   `./gradlew :core:domain:jvmTest --tests '*ExportGeometryTest*'` (the exported crop matches the chosen ratio)
-- [ ] **S5 Style presets.** About 6 JSON presets in `files/presets/` with `index.json`, applied with one tap.
+- [x] **S5 Style presets.** About 6 JSON presets in `files/presets/` with `index.json`, applied with one tap.
   Check: `./gradlew :composeApp:testAndroidHostTest --tests '*PresetsTest*'` (every file parses, is listed in
   `index.json`, and names an existing layout, style and filter). The CI APK check also greps for
   `files/presets/index.json`.

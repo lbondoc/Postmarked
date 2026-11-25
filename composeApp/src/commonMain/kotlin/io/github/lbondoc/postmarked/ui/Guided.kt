@@ -96,7 +96,7 @@ internal fun GuidedSummary(
             Text(step.detail, style = MaterialTheme.typography.bodyLarge, color = colours.onSurfaceVariant)
             PaperCard(Modifier.fillMaxWidth()) {
                 when (step) {
-                    GuideStep.Style -> StylePanel(vm.mode, summary, material) { mode -> if (mode == SummaryMode.Manual) onChooseMine() else vm.setMode(mode) }
+                    GuideStep.Style -> StylePanel(vm.mode, summary, material, presets = emptyList(), onPreset = {}) { mode -> if (mode == SummaryMode.Manual) onChooseMine() else vm.setMode(mode) }
                     GuideStep.Colour -> ColourPanel(vm.mode, summary, material, vm::setFocus)
                     GuideStep.Layout -> LayoutPanel(vm.layout, vm::setLayout)
                     GuideStep.Look -> WholeSummaryFilter(summary, material, vm::setLook)
