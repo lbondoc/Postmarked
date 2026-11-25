@@ -1256,3 +1256,28 @@ PGPASSWORD=postgres` for the sandbox's Postgres.
   - `npm test` → exit 0.
 - Follow-ups: **needs manual check** of the exported slides on a phone, especially text size on the cover and
   closing slides at 3:4.
+
+## W1 trip_shares table
+- Changes:
+  - `supabase/migrations/20261201000000_trip_shares.sql` (new): `trip_shares(token, trip_id, created_by,
+    created_at, revoked_at)`. The token is 128 random bits from `gen_random_bytes(16)` in base64url, 22
+    characters with no padding, and a check constraint holds it to that shape. A partial unique index allows at
+    most one live link per trip.
+  - RLS: only the person who made a link can read it (`created_by = auth.uid()`). There are no insert or update
+    grants. Links are made and revoked through `create_share(trip)` (owner and editors; it revokes any live link
+    first, so a new link always gets a new token) and `revoke_share(trip)` (any owner or editor, whoever made the
+    link). `share_is_on(trip)` tells members whether sharing is on without showing the token. All three refuse
+    signed-out callers.
+  - `create extension if not exists pgcrypto with schema extensions`: Supabase has it already, and the local
+    test database needs it.
+- Approach: functions rather than direct writes, because a direct `update ... set revoked_at` would need
+  editors to read the row, and only the creator may read tokens. With the functions, any editor can still turn a
+  link off.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `shares_test.sql` checks the token's shape.
+    It checks that the creator reads their link and the owner, viewers and strangers read nothing. Members see
+    `share_is_on` and strangers don't. Signed-out callers get no access. Viewers can't create or revoke, and nobody
+    inserts or updates directly. A new link revokes the old token, leaving one live link. Any editor can revoke,
+    and deleting the trip deletes its links.
+  - `npm test` → exit 0.
+

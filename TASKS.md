@@ -149,7 +149,7 @@ must pass as well.
 
 ## Phase 5 — Share link
 
-- [ ] **W1 trip_shares table.** A migration with RLS: editors create and revoke, nobody reads tokens through
+- [x] **W1 trip_shares table.** A migration with RLS: editors create and revoke, nobody reads tokens through
   PostgREST except the creator.
   Check: `./supabase/tests/run.sh` (new `shares_test.sql`)
 - [ ] **W2 `share` Edge Function.** Check the token and return the trip, media and signed URLs for thumb, display
