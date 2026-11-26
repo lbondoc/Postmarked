@@ -61,3 +61,21 @@ private fun rectangle(south: Double, north: Double, west: Double, east: Double) 
         }
     }
 }
+
+/**
+ * The middle of the place's outline (the centre of its bounding box), for using a searched place as a single
+ * point: a trip's start or end, or where a photo was taken. Null when the geometry has no coordinates.
+ */
+fun Place.centre(): LatLng? {
+    val lngs = mutableListOf<Double>()
+    val lats = mutableListOf<Double>()
+    fun walk(e: kotlinx.serialization.json.JsonElement) {
+        val a = e as? JsonArray ?: return
+        val x = (a.getOrNull(0) as? JsonPrimitive)?.doubleOrNull
+        val y = (a.getOrNull(1) as? JsonPrimitive)?.doubleOrNull
+        if (x != null && y != null) { lngs += x; lats += y } else a.forEach(::walk)
+    }
+    geometry["coordinates"]?.let(::walk)
+    if (lats.isEmpty()) return null
+    return LatLng((lats.min() + lats.max()) / 2, (lngs.min() + lngs.max()) / 2)
+}

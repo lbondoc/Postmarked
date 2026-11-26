@@ -14,12 +14,21 @@ import io.github.lbondoc.postmarked.data.LiveMode
 import io.github.lbondoc.postmarked.data.MediaKind
 import io.github.lbondoc.postmarked.data.QueuedUpload
 import io.github.lbondoc.postmarked.data.ScanResult
+import io.github.lbondoc.postmarked.data.pickedMedia
+import io.github.lbondoc.postmarked.domain.media.ExifInfo
+import io.github.lbondoc.postmarked.domain.media.readExif
+import android.content.Intent
+import androidx.activity.result.PickVisualMediaRequest
+import kotlinx.datetime.TimeZone
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+
+private const val MAX_PICKED = 100 // a picker limit, so one pick stays reviewable
+private const val EXIF_BYTES = 128 * 1024 // EXIF sits at the start of a JPEG; this is far more than it needs
 
 /** The camera roll for one Activity. Must be created in onCreate, because it registers for permission results. */
 class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
@@ -42,6 +51,42 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
     private val ask = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         waiting?.resume(Unit)
         waiting = null
+    }
+
+    // "Add from anywhere": the system photo picker. It needs no permission and shows every photo and video.
+    private var picking: CancellableContinuation<List<Uri>>? = null
+    private val picker = activity.registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICKED)) { uris ->
+        picking?.resume(uris)
+        picking = null
+    }
+
+    override val canPickAnywhere get() = true
+
+    override suspend fun pickAnywhere(): ScanResult? {
+        val uris = suspendCancellableCoroutine { continuation ->
+            picking = continuation
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        }
+        if (uris.isEmpty()) return null
+        val items = withContext(Dispatchers.IO) { uris.mapNotNull(::readPicked) }
+        return ScanResult(items.sortedBy { it.capturedAtMs }, locationAllowed = true)
+    }
+
+    /** A picked file, read like the website reads one: its EXIF date and GPS, else the file's date as a suggestion. */
+    private fun readPicked(uri: Uri): DeviceMedia? {
+        val resolver = activity.contentResolver
+        // Uploads run later in the background, maybe after a restart: keep the right to read the file.
+        runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val kind = if (resolver.getType(uri)?.startsWith("video/") == true) MediaKind.Video else MediaKind.Photo
+        val modifiedMs = runCatching {
+            resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_MODIFIED), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getLong(0) * 1000 else null // stored in seconds
+            }
+        }.getOrNull() ?: 0L
+        val exif = if (kind == MediaKind.Photo) {
+            runCatching { resolver.openInputStream(uri)?.use { readExif(it.start(EXIF_BYTES)) } }.getOrNull() ?: ExifInfo()
+        } else ExifInfo()
+        return pickedMedia(uri.toString(), kind, exif, modifiedMs, TimeZone.currentSystemDefault())
     }
 
     private fun granted(permission: String) =
@@ -99,4 +144,16 @@ class AndroidCameraRoll(private val activity: ComponentActivity) : CameraRoll {
     override val mobileData: StateFlow<Boolean> = UploadQueue.mobileData
 
     override fun allowMobileData(allowed: Boolean) = UploadQueue.allowMobileData(activity.applicationContext, allowed)
+}
+
+/** Up to [count] bytes from the start of the stream (InputStream.readNBytes needs Android 13). */
+private fun java.io.InputStream.start(count: Int): ByteArray {
+    val buffer = ByteArray(count)
+    var read = 0
+    while (read < count) {
+        val n = read(buffer, read, count - read)
+        if (n < 0) break
+        read += n
+    }
+    return buffer.copyOf(read)
 }

@@ -192,6 +192,44 @@ so it joins up when swiped).
 - Strict grids (3 × 3, 2 × 3 and the Instagram profile grid) keep fixed tile shapes. There the picker shows only
   the tile's ratio, because the profile grid has to line up.
 
+## 9. Editing trips, and photos with no date or place
+
+Settled with the owner on 2026-11-25.
+
+### 9.1 Edit trip
+- Editors and the owner open **Edit trip** from the trip page and can change the name, dates, location
+  (regions) and the start and end points. It reuses the New trip form and its place search, filled in with the
+  trip's current values. Saving updates `trips` (the columns are already granted to editors) and calls
+  `set_trip_regions` (already exists).
+- **Shorter dates and day notes:** if a day note falls outside the new dates, saving is refused with
+  "Day 5 (Wed 16 Sep) has a note. Delete or move it first." Nothing is deleted automatically.
+- **Photos already uploaded are left as they are.** The trip's dates and location only decide what the importer
+  suggests, so photos outside the new dates or location stay in the gallery, route and summaries.
+
+### 9.2 Adding photos from anywhere
+- **Android** gains **Add from anywhere**, which opens the system photo picker (`PickMultipleVisualMedia`, no
+  extra permission). Picked files are read the same way as on the web (EXIF date and GPS through
+  `core/domain/media`) and go to the same review screen. The camera-roll scan around the trip's dates stays as
+  the main path.
+- **A file with no date** (no EXIF `DateTimeOriginal`: screenshots, messaging-app copies, scans and, on the web,
+  every video) is listed under **No date in the file**. Each ticked one needs a trip day before **Add** is enabled.
+  The file's modified time picks the starting day when it falls within the trip; otherwise nothing is chosen.
+  A time is optional: without one it is noon on that day, in the device's time zone, with `utc_offset_minutes`
+  left empty. Today the web silently uses the modified time instead. That fallback goes away.
+- Photos in **No location saved** can be given a place in the review screen before they upload (§9.3).
+
+### 9.3 Setting a date or place by hand
+- From the viewer's info panel, **Edit date and place** changes a photo's day (one of the trip's days), its time
+  and its location.
+- **Location:** search for a place (the New trip place search), then fine-tune by dragging a pin on the map.
+  The web has no tiled map (§1.1), so there it is the place search alone. A location can also be cleared.
+- **Who:** the person who uploaded it and the trip owner. Other editors and viewers can't.
+- New columns `media.date_by_hand` and `media.location_by_hand` (booleans, default false) record the change.
+  The info panel then says "Date set by hand" or "Location set by hand".
+- A location set by hand counts exactly like a GPS one in stops, the route and miles. Saving it marks the trip's
+  cached route stale, so the map rebuilds it on the next open.
+- Edits need a connection. Offline, the editor says "Couldn't save. Check your connection and try again."
+
 ## Out of scope this round
 Push notifications (FCM), App Store/TestFlight, testing on an iOS device, background upload and live mode on web,
 HEIC and video transcoding on web, downloading a whole trip for offline use, notes per stop, camera model in the

@@ -1,5 +1,17 @@
 package io.github.lbondoc.postmarked.ui
 
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Path
+import kotlinx.datetime.daysUntil
+import kotlinx.datetime.LocalDate
+import io.github.lbondoc.postmarked.domain.geo.LatLng
+import io.github.lbondoc.postmarked.domain.summary.carouselPlan
+import io.github.lbondoc.postmarked.domain.summary.MAX_SLIDES
+import io.github.lbondoc.postmarked.domain.summary.CarouselSlide
+import io.github.lbondoc.postmarked.domain.summary.CarouselPhoto
+import io.github.lbondoc.postmarked.data.TripRoute
 import io.github.lbondoc.postmarked.domain.summary.arrange
 import io.github.lbondoc.postmarked.domain.summary.panoramaSlices
 import io.github.lbondoc.postmarked.domain.summary.noteToQuote
@@ -71,6 +83,7 @@ import io.github.lbondoc.postmarked.domain.summary.Layout
 import io.github.lbondoc.postmarked.domain.summary.SongCredit
 import io.github.lbondoc.postmarked.domain.summary.caption
 import io.github.lbondoc.postmarked.data.Crop
+import io.github.lbondoc.postmarked.data.tileAspect
 import io.github.lbondoc.postmarked.domain.summary.cropRegion
 import io.github.lbondoc.postmarked.domain.summary.fit
 import io.github.lbondoc.postmarked.domain.summary.postingOrder
@@ -94,6 +107,7 @@ enum class ExportSize(val label: String, val width: Int, val height: Int) {
 enum class ExportKind(val label: String) {
     Single("One post"),
     Carousel("Carousel"),
+    TripCarousel("Trip carousel"),
     Grid("Profile grid (9 posts)"),
 }
 
@@ -130,6 +144,8 @@ private class Drawing(
     val textColours: List<Int>,
     val measurer: TextMeasurer,
     val font: FontFamily,
+    /** The road route for a trip carousel's route slide; null leaves that slide out. */
+    val route: TripRoute? = null,
 )
 
 private val ONE = Density(1f) // draw in plain pixels: 1 dp = 1 sp = 1 px
@@ -140,7 +156,7 @@ private fun Int.color() = rgbColor(this)
  * Draws the summary as [kind] at [size]. Pictures are the full display copies; the result is
  * fresh pixels, so it carries no GPS or other metadata from the originals.
  */
-private suspend fun renderExport(material: SummaryMaterial, d: Drawing, kind: ExportKind, size: ExportSize): List<ExportedImage> =
+private suspend fun renderExport(material: SummaryMaterial, d: Drawing, kind: ExportKind, size: ExportSize, closing: String, miles: Int?): List<ExportedImage> =
     withContext(Dispatchers.Default) {
         val base = d.summary.name.lowercase().map { if (it.isLetterOrDigit()) it else '-' }.joinToString("").trim('-').ifEmpty { "postmarked" }
         fun image(draw: DrawScope.() -> Unit): ImageBitmap {
@@ -161,6 +177,27 @@ private suspend fun renderExport(material: SummaryMaterial, d: Drawing, kind: Ex
             }
             ExportKind.Carousel -> listOf(ExportedImage("$base-1.jpg", image { whole(d) })) +
                 solo.mapIndexed { i, tile -> ExportedImage("$base-${i + 2}.jpg", image { alone(d, tile) }) }
+            // Cover, the photos in time order a slide each, the route, and a closing slide (SPEC §8.3), all in one look.
+            ExportKind.TripCarousel -> {
+                val photos = d.summary.tiles.filter { t -> t.media?.let { material.byId[it] } != null }
+                val start = material.trip.startDate
+                val plan = carouselPlan(
+                    photos.map { t -> material.byId.getValue(t.media!!).let { CarouselPhoto(it.takenAt.toEpochMilliseconds(), start.daysUntil(it.takenOn)) } },
+                    perSlide = 1,
+                    hasRoute = d.route?.plan?.stops?.isNotEmpty() == true,
+                )
+                val first = plan.filterIsInstance<CarouselSlide.Photos>().firstOrNull()?.photos?.firstOrNull()?.let { photos[it] }
+                plan.mapIndexed { n, slide ->
+                    ExportedImage("$base-${n + 1}.jpg", image {
+                        when (slide) {
+                            CarouselSlide.Cover -> coverSlide(d, first, material.trip.name, material.trip.dates)
+                            is CarouselSlide.Photos -> alone(d, photos[slide.photos.single()])
+                            CarouselSlide.Route -> routeSlide(d, d.route!!, start, miles)
+                            CarouselSlide.Closing -> closingSlide(d, closing)
+                        }
+                    })
+                }
+            }
             // Numbered in posting order: post 1 first, so it ends up bottom-right of the profile.
             ExportKind.Grid -> postingOrder(d.summary.tiles.size).mapIndexed { n, index ->
                 ExportedImage("$base-post-${n + 1}-of-${d.summary.tiles.size}.jpg", image { alone(d, d.summary.tiles[index]) })
@@ -178,7 +215,7 @@ private fun DrawScope.whole(d: Drawing) {
     val border = theme.exportBorder * w
     // Adaptive layouts follow each photo's own shape, which the downloaded pictures tell exactly.
     val arranged = d.layout.arrange(List(d.layout.slots.size) { i ->
-        d.summary.tiles.getOrNull(i)?.media?.let { d.pictures[it] }?.let { it.width.toDouble() / it.height }
+        d.summary.tiles.getOrNull(i)?.let { t -> t.media?.let { tileAspect(t, d.pictures[it]?.let { p -> p.width.toDouble() / p.height }) } }
     })
     val canvas = fit(arranged.aspect, Box(border, border, w - 2 * border, size.height - 2 * border))
     drawRect(c.paper.color(), Offset(canvas.left.toFloat(), canvas.top.toFloat()), Size(canvas.width.toFloat(), canvas.height.toFloat()))
@@ -236,6 +273,65 @@ private fun DrawScope.whole(d: Drawing) {
             drawText(label, topLeft = Offset(centre.x - label.size.width / 2f, centre.y - label.size.height / 2f))
         }
     }
+}
+
+/** Text in the theme's ink, centred in [b] and wrapped to it. */
+private fun DrawScope.centred(d: Drawing, text: String, b: Box, fontSize: Double, heading: Boolean) {
+    val layout = d.measurer.measure(
+        AnnotatedString(text),
+        TextStyle(
+            color = d.look.colours.ink.color(), fontFamily = if (heading) d.font else null,
+            fontWeight = if (heading) FontWeight.Bold else FontWeight.Normal,
+            fontSize = fontSize.sp, lineHeight = (fontSize * 1.2).sp, textAlign = TextAlign.Center,
+        ),
+        constraints = Constraints(maxWidth = b.width.roundToInt()),
+        density = ONE,
+    )
+    drawText(layout, topLeft = Offset((b.left + (b.width - layout.size.width) / 2).toFloat(), (b.top + (b.height - layout.size.height) / 2).toFloat()))
+}
+
+/** A trip carousel's first slide: the earliest photo above the trip's name and dates. */
+private fun DrawScope.coverSlide(d: Drawing, hero: SummaryTile?, name: String, dates: String) {
+    val w = size.width.toDouble()
+    val h = size.height.toDouble()
+    val m = w * 0.06
+    drawRect(d.look.colours.paper.color())
+    if (hero != null) tileContent(d, hero, Box(m, m, w - 2 * m, h * 0.7 - m), textScale = 1.0)
+    centred(d, name.uppercase(), Box(m, h * 0.71, w - 2 * m, h * 0.17), w * 0.085, heading = true)
+    centred(d, dates, Box(m, h * 0.87, w - 2 * m, h * 0.09), w * 0.04, heading = false)
+}
+
+/** The road line and stops on paper, coloured by day, with the miles driven. No map tiles. */
+private fun DrawScope.routeSlide(d: Drawing, route: TripRoute, start: LocalDate, miles: Int?) {
+    val w = size.width
+    drawRect(d.look.colours.paper.color())
+    centred(d, if (miles != null) "$miles MILES" else "THE ROUTE", Box(0.0, 0.0, w.toDouble(), size.height * 0.16), w * 0.08, heading = true)
+    val points = route.legs.flatMap { it.path } + route.plan.stops.map { it.at }
+    val top = size.height * 0.16f
+    val project = routeProjection(points, w, size.height - top, w * 0.08f)
+    fun at(p: LatLng) = project(p) + Offset(0f, top)
+    for (leg in route.legs) {
+        if (leg.path.size < 2) continue
+        val path = Path().apply { moveTo(at(leg.path[0]).x, at(leg.path[0]).y); for (p in leg.path.drop(1)) lineTo(at(p).x, at(p).y) }
+        val dash = w * 0.01f
+        drawPath(
+            path,
+            color = if (leg.leg.driven) parseHex(dayColor(dayNumber(start, leg.leg.day))) else Color(0xFF8A8A8A),
+            style = if (leg.leg.driven) Stroke(w * 0.008f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            else Stroke(w * 0.004f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash))),
+        )
+    }
+    for (stop in route.plan.stops) {
+        drawCircle(d.look.colours.ink.color(), radius = w * 0.016f, center = at(stop.at))
+        drawCircle(parseHex(dayColor(dayNumber(start, stop.day))), radius = w * 0.012f, center = at(stop.at))
+    }
+}
+
+/** The last slide: the caption's opening, on paper. */
+private fun DrawScope.closingSlide(d: Drawing, text: String) {
+    val w = size.width.toDouble()
+    drawRect(d.look.colours.paper.color())
+    centred(d, text, Box(w * 0.1, 0.0, w * 0.8, size.height.toDouble()), w * 0.06, heading = true)
 }
 
 /** One tile on its own, filling the image: a carousel slide or one post of a profile grid. */
@@ -318,6 +414,7 @@ fun ExportSheet(
     songs: List<Song>,
     miles: Int?,
     stops: Int,
+    route: TripRoute?,
     exporter: Exporter,
     onClose: () -> Unit,
 ) {
@@ -358,8 +455,10 @@ fun ExportSheet(
                     chunk.map { item -> async { item.id to Media.pictureBytes(material.trip.id, item).decodeToImageBitmap() } }.awaitAll()
                 }.toMap()
             }
-            val drawing = Drawing(summary, layout, look, pictures, material.gradeFor(summary), material.textColours(summary), measurer, font)
-            val images = renderExport(material, drawing, kind, size)
+            val drawing = Drawing(summary, layout, look, pictures, material.gradeFor(summary), material.textColours(summary), measurer, font, route)
+            // The closing slide: the caption's first paragraph, without hashtags.
+            val closing = text.substringBefore("\n\n").lines().filterNot { it.trimStart().startsWith("#") }.joinToString("\n").take(220)
+            val images = renderExport(material, drawing, kind, size, closing, miles)
             made = images
             done = action(images)
         } catch (e: CancellationException) {
@@ -380,6 +479,11 @@ fun ExportSheet(
                 ExportKind.Carousel -> Text(
                     if (layout.slides > 1) "The panorama cut into ${layout.slides} slides that join up when swiped."
                     else "The summary first, then each tile as its own slide.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ExportKind.TripCarousel -> Text(
+                    "A cover, each photo in the order it was taken, " + (if (route != null) "the route, " else "") +
+                        "and a closing slide, in this summary's look. At most $MAX_SLIDES slides.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 ExportKind.Grid -> Text(
@@ -406,7 +510,7 @@ fun ExportSheet(
                     }
                 })
                 // Saved, then picked in Instagram: handing it several pictures at once often drops all but one.
-                ExportKind.Carousel -> InkButton("Post to Instagram", enabled = idle, modifier = Modifier.fillMaxWidth(), onClick = {
+                ExportKind.Carousel, ExportKind.TripCarousel -> InkButton("Post to Instagram", enabled = idle, modifier = Modifier.fillMaxWidth(), onClick = {
                     export { images ->
                         exporter.save(images)
                         exporter.copy(text)

@@ -1,0 +1,1 @@
+{ "id": "night_drive", "name": "Night Drive", "layout": "Grid2x3", "style": "Monochrome", "filter": "NightDrive", "strength": 1.0, "harmonize": 0.5 }

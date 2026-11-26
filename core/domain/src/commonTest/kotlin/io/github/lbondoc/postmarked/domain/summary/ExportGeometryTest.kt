@@ -38,4 +38,20 @@ class ExportGeometryTest {
         // Panning past the left edge stops at it; zooming out past "fill" is not allowed.
         assertEquals(Box(0.0, 0.0, 3000.0, 3000.0), cropRegion(4000.0, 3000.0, 1.0, 0.0, 0.5, 0.5))
     }
+
+    @Test
+    fun theExportedCropMatchesTheChosenShape() {
+        // A 4:3 photo cropped to 4:5 in an adaptive layout: its slot takes 4:5, so the exported crop is 4:5.
+        for (layout in Layout.entries.filter { it.adaptive }) {
+            val arranged = layout.arrange(listOf(0.8))
+            val slot = arranged.slots[0]
+            val slotAspect = slot.w * arranged.aspect / slot.h
+            assertEquals(0.8, slotAspect, 1e-9, layout.name)
+            val crop = cropRegion(4000.0, 3000.0, slotAspect, 0.5, 0.5, 1.0)
+            assertEquals(0.8, crop.width / crop.height, 1e-9, layout.name)
+        }
+        // A strict grid keeps its square tiles whatever shape was chosen.
+        val grid = Layout.Grid3x3.arrange(listOf(0.8))
+        assertEquals(1.0, grid.slots[0].w * grid.aspect / grid.slots[0].h, 1e-9)
+    }
 }

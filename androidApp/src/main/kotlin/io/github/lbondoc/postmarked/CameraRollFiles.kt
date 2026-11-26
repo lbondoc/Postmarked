@@ -25,7 +25,10 @@ import kotlinx.datetime.toKotlinLocalDate
  * so then the blanked copy is the best there is.
  */
 fun Context.originalUri(uri: Uri): Uri =
-    if (checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+    // The system photo picker's addresses (content://media/picker/...) aren't MediaStore items and refuse the request.
+    if (checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+        uri.pathSegments.firstOrNull() != "picker"
+    ) {
         MediaStore.setRequireOriginal(uri)
     } else {
         uri

@@ -57,4 +57,19 @@ class PickedFilesTest {
         assertEquals(modified, m.capturedAtMs)
         assertEquals(LocalDate(2026, 10, 3), m.takenOn) // 7 pm the evening before in Los Angeles
     }
+
+    @Test
+    fun noExifDateMeansTheDateIsNotKnownAndOnlySuggested() {
+        val start = LocalDate(2026, 10, 3)
+        val end = LocalDate(2026, 10, 6)
+        val modified = Instant.parse("2026-10-05T02:00:00Z").toEpochMilliseconds() // Oct 4, 7 pm in Los Angeles
+        val screenshot = pickedMedia("s", MediaKind.Photo, ExifInfo(), modified, la)
+        assertEquals(false, screenshot.dateKnown)
+        assertEquals(LocalDate(2026, 10, 4), suggestedDay(screenshot, start, end), "modified during the trip: that day")
+        val copiedLater = pickedMedia("c", MediaKind.Photo, ExifInfo(), Instant.parse("2026-11-20T12:00:00Z").toEpochMilliseconds(), la)
+        assertNull(suggestedDay(copiedLater, start, end), "modified after the trip: no day suggested")
+        val camera = pickedMedia("p", MediaKind.Photo, ExifInfo("2026:10:04 09:00:00"), modified, la)
+        assertEquals(true, camera.dateKnown)
+        assertNull(suggestedDay(camera, start, end), "a file with its own date needs no suggestion")
+    }
 }

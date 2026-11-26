@@ -1,5 +1,8 @@
 package io.github.lbondoc.postmarked.ui
 
+import io.github.lbondoc.postmarked.data.TripRoute
+import io.github.lbondoc.postmarked.data.StylePresets
+import io.github.lbondoc.postmarked.data.StylePreset
 import kotlinx.datetime.daysUntil
 import kotlinx.datetime.LocalDate
 import io.github.lbondoc.postmarked.domain.summary.shortQuote
@@ -229,7 +232,12 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         private set
     var miles by mutableStateOf<Int?>(null)
         private set
+    /** The road route, for the miles and a trip carousel's route slide; null until built or when it can't be. */
+    var route by mutableStateOf<TripRoute?>(null)
+        private set
     var songs by mutableStateOf<List<Song>>(emptyList())
+        private set
+    var presets by mutableStateOf<List<StylePreset>>(emptyList())
         private set
     /** True while someone makes their very first summary: they're walked through it a step at a time. */
     var guided by mutableStateOf(false)
@@ -243,14 +251,16 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
         summary = summaryId?.let { Summaries.get(it) } ?: build(m, SummaryMode.Monochrome, Layout.Grid3x3, focus = null)
         guided = summaryId == null && myUserId?.let { !Summaries.anyBy(it) } == true
         songs = Songs.ofTrip(tripId)
+        presets = StylePresets.all()
         // Miles need the road route, which can be slow or unavailable; the summary works without them.
-        miles = try {
-            (Routes.build(tripId).days.sumOf { it.meters } / METERS_PER_MILE).roundToInt()
+        route = try {
+            Routes.build(tripId)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         }
+        miles = route?.let { r -> (r.days.sumOf { it.meters } / METERS_PER_MILE).roundToInt() }
     }
 
     private fun build(m: SummaryMaterial, mode: SummaryMode, layout: Layout, focus: Oklab?, keep: Summary? = summary): Summary {
@@ -293,6 +303,14 @@ class SummaryEditorViewModel(private val tripId: String, private val summaryId: 
     fun setFocus(colour: Oklab) {
         val m = material ?: return
         summary = build(m, SummaryMode.Monochrome, layout, focus = colour)
+    }
+
+    /** One tap: the preset's layout and style, refilled, with its filter and Match amount (SPEC §8.3). */
+    fun applyPreset(p: StylePreset) {
+        val m = material ?: return
+        val mode = SummaryMode.entries.firstOrNull { it.name == p.style && it != SummaryMode.Manual } ?: return
+        val layout = Layout.entries.firstOrNull { it.name == p.layout } ?: return
+        summary = build(m, mode, layout, focus = null).copy(harmonize = p.harmonize, look = p.look)
     }
 
     fun setHarmonize(value: Double) = change { it.copy(harmonize = value) }
@@ -408,7 +426,7 @@ fun SummaryEditorScreen(
             )
             PaperCard(Modifier.fillMaxWidth()) {
                 when (tab) {
-                    EditorTab.Style -> StylePanel(vm.mode, summary, material) { mode -> if (mode == SummaryMode.Manual) chooseMine() else vm.setMode(mode) }
+                    EditorTab.Style -> StylePanel(vm.mode, summary, material, vm.presets, vm::applyPreset) { mode -> if (mode == SummaryMode.Manual) chooseMine() else vm.setMode(mode) }
                     EditorTab.Colour -> ColourPanel(vm.mode, summary, material, vm::setFocus)
                     EditorTab.Layout -> LayoutPanel(vm.layout, vm::setLayout)
                     EditorTab.Filter, EditorTab.Adjust -> if (selected.isNotEmpty()) {
@@ -473,6 +491,7 @@ fun SummaryEditorScreen(
             EditPhotoScreen(
                 tile, material.pictures[tile.media], material.thumbnails[tile.media],
                 aspect = (slot.w / slot.h * vm.layout.aspect).toFloat(),
+                adaptive = vm.layout.adaptive,
                 startTab = tab,
                 gradeOf = material.gradeFor(summary),
                 onDone = { vm.setTile(i, it); photoEditing = null },
@@ -488,6 +507,7 @@ fun SummaryEditorScreen(
         if (look != null) ExportSheet(
             material, summary, vm.layout, look, vm.songs, vm.miles,
             stops = remember(material.media) { planRoute(material.media.mapNotNull { it.toRoutePoint() }).stops.size },
+            route = vm.route,
             exporter = exporter,
             onClose = { exporting = false },
         )
@@ -559,7 +579,16 @@ internal fun WholeSummaryFilter(summary: Summary, material: SummaryMaterial, onC
 }
 
 @Composable
-internal fun StylePanel(mode: SummaryMode, summary: Summary, material: SummaryMaterial, onChoose: (SummaryMode) -> Unit) {
+internal fun StylePanel(
+    mode: SummaryMode, summary: Summary, material: SummaryMaterial,
+    presets: List<StylePreset>, onPreset: (StylePreset) -> Unit, onChoose: (SummaryMode) -> Unit,
+) {
+    if (presets.isNotEmpty()) {
+        SectionLabel("Presets")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (p in presets) InkChip(p.name, selected = false, onClick = { onPreset(p) })
+        }
+    }
     SectionLabel("Style")
     val first = summary.colours.firstOrNull()?.let { rgbColor(hexToRgb(it)) } ?: MaterialTheme.colorScheme.outlineVariant
     val palette = material.palette.map { rgbColor(it.rgb) }

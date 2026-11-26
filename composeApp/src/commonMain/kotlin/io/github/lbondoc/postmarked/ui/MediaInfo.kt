@@ -29,9 +29,11 @@ fun infoLines(
     return listOfNotNull(
         item.profile?.displayName?.let { "Taken by $it" },
         item.localTime.format(MOMENT),
+        "Date set by hand".takeIf { item.dateByHand },
         day?.let { "Day $it" },
         stop,
         place?.let { "Near $it" },
+        "Location set by hand".takeIf { item.locationByHand },
         size,
     )
 }

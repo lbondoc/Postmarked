@@ -1,5 +1,6 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.TimeZone
 import androidx.compose.runtime.collectAsState
 import kotlinx.datetime.LocalDate
 import io.github.lbondoc.postmarked.data.placeName
@@ -106,6 +107,10 @@ fun Viewer(
     onSetCover: ((TripMedia) -> Unit)?,
     onDeleted: () -> Unit,
     onClose: () -> Unit,
+    /** The trip's days, for Edit date and place (SPEC §9.3); [isOwner] may edit anyone's, others only their own. */
+    tripDays: List<LocalDate> = emptyList(),
+    isOwner: Boolean = false,
+    onEdited: () -> Unit = {},
 ) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val pager = rememberPagerState(initialPage = start) { items.size }
@@ -123,6 +128,7 @@ fun Viewer(
         val pendingReactions = outbox.filterIsInstance<OutboxEntry.Reaction>().filter { it.mediaId == item.id }.associateBy { it.emoji }
         val saving = remember { SaveJob(scope) }
         var confirmingDelete by remember { mutableStateOf(false) }
+        var editingPlace by remember { mutableStateOf(false) }
 
         fun act(block: suspend () -> Unit) = scope.launch {
             try {
@@ -187,7 +193,10 @@ fun Viewer(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().background(SCRIM).systemBarsPadding().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (showInfo) Info(tripId, item, tripStart, stopTitles[item.id]) else {
+                if (showInfo) {
+                    Info(tripId, item, tripStart, stopTitles[item.id])
+                    if (item.contributor == myUserId || isOwner) TextButton(onClick = { editingPlace = true }) { Text("Edit date and place", color = Color.White) }
+                } else {
                     Text("${item.profile?.displayName ?: "Someone"} · ${item.localTime.format(MOMENT)}", color = Color.White)
                 }
                 SavingBar(saving, Color.White)
@@ -272,6 +281,21 @@ fun Viewer(
             }
         }
 
+        if (editingPlace) {
+            val local = item.localTime
+            DatePlaceDialog(
+                title = "Edit date and place",
+                tripDays = tripDays, day = local.date, time = local.time, place = item.location, showDate = true,
+                onSave = { day, time, at ->
+                    editingPlace = false
+                    act {
+                        Media.edit(item.id, momentOf(day!!, time, item.utcOffsetMinutes, TimeZone.currentSystemDefault()), item.utcOffsetMinutes, at)
+                        onEdited()
+                    }
+                },
+                onDismiss = { editingPlace = false },
+            )
+        }
         if (confirmingDelete) {
             AlertDialog(
                 onDismissRequest = { confirmingDelete = false },

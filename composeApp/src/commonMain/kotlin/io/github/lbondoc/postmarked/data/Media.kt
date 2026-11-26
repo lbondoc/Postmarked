@@ -6,6 +6,7 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.github.lbondoc.postmarked.domain.geo.LatLng
+import io.github.jan.supabase.postgrest.postgrest
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -70,6 +71,15 @@ data class DeviceMedia(
     val utcOffsetMinutes: Int? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    /**
+     * False when the file has no date of its own (no EXIF date: screenshots, messaging-app copies, scans, and every
+     * video picked on the web). [capturedAtMs] and [takenOn] are then only the file's modified time, a suggestion
+     * the person confirms by choosing a trip day (SPEC §9.2).
+     */
+    val dateKnown: Boolean = true,
+    /** The person chose the day (and maybe time), or the place: uploaded as date_by_hand / location_by_hand. */
+    val dateByHand: Boolean = false,
+    val locationByHand: Boolean = false,
 ) {
     // A property with only a getter is not stored, so it is not part of the saved JSON.
     val location: LatLng? get() = if (lat != null && lng != null) LatLng(lat, lng) else null
@@ -170,6 +180,14 @@ interface CameraRoll {
      */
     val pickedByHand: Boolean get() = false
 
+    /**
+     * Picks any photos or videos, whatever their dates, through the system's own picker (SPEC §9.2: "Add from
+     * anywhere"), read the way the website reads picked files. Null when nothing was picked; [canPickAnywhere]
+     * is false where there's no such picker beside [scan] (the website's [scan] already is one).
+     */
+    suspend fun pickAnywhere(): ScanResult? = null
+    val canPickAnywhere: Boolean get() = false
+
     /** What the import grid shows for [item]: anything Coil loads. The phone's content:// address works as it is. */
     fun preview(item: DeviceMedia): Any? = item.uri
 }
@@ -192,6 +210,9 @@ data class TripMedia(
     val profile: Profile? = null,
     /** When it was uploaded, for "N new from friends". */
     @SerialName("created_at") val createdAt: String? = null,
+    /** The day/time or the place was set by hand (SPEC §9.3), rather than read from the file. */
+    @SerialName("date_by_hand") val dateByHand: Boolean = false,
+    @SerialName("location_by_hand") val locationByHand: Boolean = false,
 ) {
     val swatches: List<Swatch> get() = palette.orEmpty().map { it.toSwatch() }
 
@@ -238,7 +259,7 @@ object Media {
         supabase.from("media").select(
             // lat and lng are computed columns (see the media_location migration); profile is who took it.
             // "!contributor" names the link: reactions and comments also join media to profiles, so without it the server can't tell which.
-            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,profile:profiles!contributor(display_name)")
+            Columns.raw("id,kind,contributor,captured_at,utc_offset_minutes,lat,lng,dhash,sharpness,palette,created_at,date_by_hand,location_by_hand,profile:profiles!contributor(display_name)")
         ) {
             filter { eq("trip_id", tripId) }
             order("captured_at", Order.ASCENDING)
@@ -260,6 +281,20 @@ object Media {
             filter { eq("trip_id", tripId); eq("sha256", sha256) }
         }.decodeList<JsonObject>().isNotEmpty()
 
+    /**
+     * Changes a photo's moment and place (SPEC §9.3): the uploader and the trip owner only, which the server checks.
+     * A null [at] clears the place. The server marks what changed as set by hand.
+     */
+    suspend fun edit(mediaId: String, takenAt: Instant, utcOffsetMinutes: Int?, at: LatLng?) {
+        supabase.postgrest.rpc("edit_media", buildJsonObject {
+            put("p_media", mediaId)
+            put("p_captured_at", takenAt.toString())
+            put("p_utc_offset_minutes", utcOffsetMinutes)
+            put("p_lat", at?.lat)
+            put("p_lng", at?.lng)
+        })
+    }
+
     /** Adds the database row once all files are up. False when someone else added the same file first. */
     suspend fun add(upload: QueuedUpload, sha256: String, dhash: Long?, sharpness: Double?, palette: List<Swatch>): Boolean = try {
         supabase.from("media").insert(buildJsonObject {
@@ -270,6 +305,8 @@ object Media {
             upload.item.utcOffsetMinutes?.let { put("utc_offset_minutes", it) }
             upload.item.location?.let { put("location", "SRID=4326;POINT(${it.lng} ${it.lat})") }
             put("sha256", sha256)
+            if (upload.item.dateByHand) put("date_by_hand", true)
+            if (upload.item.locationByHand) put("location_by_hand", true)
             dhash?.let { put("dhash", it) }
             sharpness?.let { put("sharpness", it) }
             put("palette", Json.encodeToJsonElement(palette.toEntries()))

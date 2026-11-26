@@ -1,5 +1,10 @@
 package io.github.lbondoc.postmarked.ui
 
+import kotlinx.datetime.plus
+import kotlinx.datetime.DateTimeUnit
+import androidx.compose.foundation.text.selection.SelectionContainer
+import io.github.lbondoc.postmarked.data.shareLink
+import io.github.lbondoc.postmarked.data.Shares
 import androidx.compose.material3.OutlinedTextField
 import io.github.lbondoc.postmarked.data.notesToShow
 import kotlinx.datetime.LocalDate
@@ -117,6 +122,11 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
     /** Set while an invite is on screen. It cannot be fetched again later, only replaced. */
     var inviteToken by mutableStateOf<String?>(null)
         private set
+    /** Whether a share link is live, and its token when I made it (SPEC §7). */
+    var shareOn by mutableStateOf(false)
+        private set
+    var shareToken by mutableStateOf<String?>(null)
+        private set
 
     /** True when the network failed and the page shows the copy saved last time. */
     var offline by mutableStateOf(false)
@@ -196,6 +206,22 @@ class TripViewModel(private val tripId: String) : ScreenModel() {
 
     fun invite(role: TripRole) = run { inviteToken = Trips.createInvite(tripId, role) }
 
+    fun loadShare() = run {
+        shareOn = Shares.isOn(tripId)
+        shareToken = Shares.myToken(tripId)
+    }
+
+    fun startSharing() = run {
+        shareToken = Shares.create(tripId)
+        shareOn = true
+    }
+
+    fun stopSharing() = run {
+        Shares.revoke(tripId)
+        shareOn = false
+        shareToken = null
+    }
+
     fun setTheme(themeId: String, accent: String?) = run {
         Trips.setTheme(tripId, themeId, accent)
         trip = Trips.byId(tripId)
@@ -221,12 +247,14 @@ fun TripScreen(
     onAddMedia: () -> Unit,
     onOpenMap: () -> Unit,
     onOpenSummaries: () -> Unit,
+    onEditTrip: () -> Unit,
     onShare: (String) -> Unit,
     videoPlayer: VideoPlayer,
     photoSaver: PhotoSaver,
     vm: TripViewModel = viewModel { TripViewModel(tripId) },
 ) {
     var choosingRole by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     /** The list the viewer swipes through, and where it opened. */
     var viewing by remember { mutableStateOf<Pair<List<TripMedia>, Int>?>(null) }
     var confirmingExit by remember { mutableStateOf(false) }
@@ -266,6 +294,7 @@ fun TripScreen(
             TopAppBar(
                 title = { Text(trip?.name ?: "Trip") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                actions = { if (trip?.myRole?.canEdit == true) TextButton(onClick = onEditTrip) { Text("Edit") } },
             )
         },
         bottomBar = {
@@ -336,6 +365,7 @@ fun TripScreen(
                     if (trip.myRole?.canEdit == true) {
                         Button(onClick = onAddMedia) { Text("Add photos and videos") }
                         Button(onClick = { choosingRole = true }, enabled = !vm.busy) { Text("Invite someone") }
+                        OutlinedButton(onClick = { sharing = true; vm.loadShare() }, enabled = !vm.busy) { Text("Share link") }
                     }
                     OutlinedButton(onClick = { confirmingExit = true }, enabled = !vm.busy) {
                         Text(if (isOwner) "Delete trip" else "Leave trip")
@@ -442,6 +472,43 @@ fun TripScreen(
                 vm.loadMedia()
             },
             onClose = { viewing = null },
+            tripDays = trip?.let { t -> generateSequence(t.startDate) { it.plus(1, DateTimeUnit.DAY) }.takeWhile { it <= t.endDate }.toList() }.orEmpty(),
+            isOwner = trip?.myRole == TripRole.Owner,
+            // The item may move to another day, so the gallery reloads; the map rebuilds its route from the new places.
+            onEdited = {
+                viewing = null
+                vm.loadMedia()
+            },
+        )
+    }
+
+    if (sharing) {
+        val token = vm.shareToken
+        AlertDialog(
+            onDismissRequest = { sharing = false },
+            title = { Text("Share link") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Anyone with the link can see this trip's photos, day notes and a map of where you went, without an account. They can't add anything, comment, or see emails.")
+                    when {
+                        token != null -> SelectionContainer { Text(shareLink(token), style = MaterialTheme.typography.bodySmall) }
+                        vm.shareOn -> Text("A link is on, made by another editor. Make a new link to get one you can send; the old one stops working.")
+                        else -> Text("Sharing is off.")
+                    }
+                }
+            },
+            confirmButton = {
+                when {
+                    token != null -> TextButton(onClick = { onShare("Photos from \"${trip?.name.orEmpty()}\" on Postmarked: ${shareLink(token)}") }) { Text("Send link") }
+                    else -> TextButton(onClick = vm::startSharing, enabled = !vm.busy) { Text(if (vm.shareOn) "Make a new link" else "Turn on") }
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (vm.shareOn) TextButton(onClick = vm::stopSharing, enabled = !vm.busy) { Text("Turn off", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { sharing = false }) { Text("Done") }
+                }
+            },
         )
     }
 

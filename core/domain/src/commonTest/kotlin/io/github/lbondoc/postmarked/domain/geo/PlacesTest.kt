@@ -60,4 +60,15 @@ class PlacesTest {
         assertEquals("Monterey County", nameFromReverse("""{"name": "", "address": {"county": "Monterey County"}}"""))
         assertEquals(null, nameFromReverse("""{"error": "Unable to geocode"}"""))
     }
+
+    @Test
+    fun aPlacesCentreIsTheMiddleOfItsOutline() {
+        val square = placesFromNominatim(response)[0]
+        assertEquals(LatLng((34.08 + 34.17) / 2, (-116.37 + -116.26) / 2), square.centre())
+        val multi = Place("Two islands", kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"type": "MultiPolygon", "coordinates": [[[[0, 0], [1, 0], [1, 1], [0, 0]]], [[[4, 2], [5, 2], [5, 3], [4, 2]]]]}""",
+        ) as kotlinx.serialization.json.JsonObject)
+        assertEquals(LatLng(1.5, 2.5), multi.centre())
+        assertEquals(null, Place("Empty", kotlinx.serialization.json.buildJsonObject { }).centre())
+    }
 }

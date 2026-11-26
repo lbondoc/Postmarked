@@ -1,0 +1,8 @@
+{
+  "name": "postmarked",
+  "private": true,
+  "description": "Not a Node project: this file only gives `npm test` the checks every task in TASKS.md must pass.",
+  "scripts": {
+    "test": "./gradlew --console=plain :core:domain:jvmTest :composeApp:testAndroidHostTest :androidApp:assembleDebug :composeApp:compileKotlinWasmJs && deno test supabase/functions/ && ./supabase/tests/run.sh"
+  }
+}

@@ -10,6 +10,12 @@ supabase/functions/`, `./supabase/tests/run.sh`, and `:composeApp:compileKotlinW
 Steps that need a phone, a Mac, or a CI run on `main` are written up as **needs manual check** rather than
 BLOCKED, and nothing gets deployed from this sandbox.
 
+**From S4 on (2026-11-25): `npm test`.** The owner's new goal gates every task on `npm test` exiting 0. A root
+`package.json` now exists for exactly that. Its `test` script is the gate above: Gradle unit tests, the debug APK,
+`compileKotlinWasmJs`, `deno test supabase/functions/` and `./supabase/tests/run.sh`. It is not a Node project.
+Each task still runs its own **Check** line too. Locally the database tests need `PGHOST=localhost PGUSER=postgres
+PGPASSWORD=postgres` for the sandbox's Postgres.
+
 **Sandbox notes (they affect local runs only, not CI).**
 - Kotlin's wasm npm tooling depends on `github:Kotlin/karma`, which this sandbox can't fetch
   (`codeload.github.com` answers 403 for repositories not attached to the session). Locally, that tooling folder
@@ -1180,3 +1186,319 @@ BLOCKED, and nothing gets deployed from this sandbox.
 ## Found
 - `composeApp/.../ui/SummaryCanvas.kt:168`: compiler warning "Unnecessary safe call on a non-null receiver of type
   `(Set<Int>) -> Unit`". It predates this round and is harmless; I left it alone (unrelated to P6).
+
+## S4 Crop ratio picker
+- Changes:
+  - `data/Summaries.kt`: `Crop` gains `aspect` (width / height; null = Original) and `free`. `tileAspect(tile,
+    photoAspect)` gives the shape a tile's photo is laid out at: the chosen shape, else the photo's own. Old saved
+    crops have neither field and load as Original.
+  - `ui/SummaryCanvas.kt` and `ui/Export.kt`: adaptive layouts are arranged with `tileAspect` instead of the
+    photo's shape, so choosing 4:5 reflows the layout and the slot, and therefore the exported crop, is 4:5.
+  - `ui/PhotoLooks.kt`: the Crop tab gets Original, 1:1, 4:5, 3:4, 16:9 and Free (a slider from 1:2 to 2:1,
+    on a log scale so both ends are as far from square). The preview frame takes the chosen shape. In strict
+    grids (3 × 3, 2 × 3, profile grid) there is no picker, only "Shape 1:1: this layout's tiles have fixed
+    shapes", and `arrange` ignores any saved shape there.
+  - `ui/SummaryScreens.kt`: passes `adaptive` to the editor.
+- Approach: the ratio lives on `Crop` because it is saved with the tile and travels with it when tiles are swapped.
+  Saved looks (`LookData`) are colour only and stay that way. The task's "saved looks keep the ratio" means the
+  saved summary keeps it, which `SavedLooksTest` checks. Strict layouts needed no new code: `arrange` already
+  ignores shapes for them.
+- Verification:
+  - Check `SavedLooksTest` → `tests="4" failures="0"` (new case: a shape survives saving; a crop saved before S4
+    loads as Original; `tileAspect` picks the chosen shape over the photo's).
+  - Check `ExportGeometryTest` → `tests="8" failures="0"` (new case: in every adaptive layout a photo cropped to
+    4:5 gets a 4:5 slot and a 4:5 export crop; the 3 × 3 grid stays square).
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the phone that dragging the Free slider reflows smoothly.
+
+## S5 Style presets
+- Changes:
+  - `composeResources/files/presets/`: six presets and `index.json`, in the album-themes pattern. They are
+    Scrapbook, Minimal White, Film Strip, Postcard, Night Drive and Sun-faded. Each names a layout, an automatic
+    style (`SummaryMode`), a filter with its strength, and a Match (harmonize) amount.
+  - `data/StylePresets.kt`: `StylePreset` and the loader, read once like `AlbumThemes`.
+  - `ui/SummaryScreens.kt`: a Presets row at the top of the editor's Style tab. One tap applies the preset:
+    layout and style (the tiles refill for them), then its filter and Match amount. `ui/Guided.kt`: the
+    first-summary walkthrough doesn't show the row, to keep its steps simple.
+  - `.github/workflows/ci.yml`: the APK resource check also greps for `files/presets/index.json`.
+- Approach: SPEC §8.3 also lists paper/border and text style per preset. Summaries don't have those settings:
+  paper, border, edge and text colours come from the trip's album theme (M6). Presets therefore set what a
+  summary does have, and adding per-summary paper settings was left out. A preset is applied, not remembered,
+  so changing anything afterwards just edits the summary.
+- Verification:
+  - Check `PresetsTest` → `tests="2" failures="0"`: every file parses, every file is listed in `index.json` and
+    every listed id has a file, ids are unique, there are 5–8 presets, and each names an existing layout, an
+    automatic style and a filter, with strength and Match in $[0, 1]$. An Original preset adds no look.
+  - The APK contains `assets/composeResources/io.github.lbondoc.postmarked.resources/files/presets/index.json`.
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** of how each preset looks on a real trip. The values are first guesses.
+
+## S6 Carousel presets
+- Changes:
+  - `core/domain/.../summary/CarouselPlan.kt` (new): `carouselPlan(photos, perSlide, hasRoute)` returns a cover,
+    the photo slides, a route slide when there is a route, and a closing slide, never more than `MAX_SLIDES` =
+    20. Photos go in time order. A new slide starts at each day when that fits; otherwise days share slides;
+    if even that is too many, photos are picked evenly across the trip.
+  - `ui/Export.kt`: a **Trip carousel** export kind. The cover is the earliest photo above the trip's name and
+    dates. Each photo gets its own slide, drawn with the summary's look, crop and harmonizing. The route slide
+    is the road line and stops on paper, coloured by day, under "N MILES", with no map tiles; it uses the
+    same projection as the web `RouteDrawing`. The closing slide is the caption's first paragraph, without
+    hashtags. All slides use the trip's album theme paper and ink. Posting works like the existing carousel.
+  - `ui/SummaryScreens.kt`: the editor keeps the built `TripRoute` (it already built it for the miles) and
+    passes it to the export sheet.
+- Approach: one photo per slide (`perSlide = 1`), as people mostly post carousels that way; the planner takes any
+  number per slide. The photos are the summary's, so what the person picked and cropped is what gets posted.
+- Verification:
+  - Check `CarouselPlanTest` → `tests="5" failures="0"`. It checks that photos stay in time order even when given
+    out of order, and that day boundaries split slides when they fit. Days share slides when splitting would pass
+    the limit. A sweep over 0–500 photos, with and without a route, never gives more than 20 slides, and every
+    photo is shown once in order when they fit. With no route there is no route slide.
+  - `npm test` → exit 0.
+- Follow-ups: **needs manual check** of the exported slides on a phone, especially text size on the cover and
+  closing slides at 3:4.
+
+## W1 trip_shares table
+- Changes:
+  - `supabase/migrations/20261201000000_trip_shares.sql` (new): `trip_shares(token, trip_id, created_by,
+    created_at, revoked_at)`. The token is 128 random bits from `gen_random_bytes(16)` in base64url, 22
+    characters with no padding, and a check constraint holds it to that shape. A partial unique index allows at
+    most one live link per trip.
+  - RLS: only the person who made a link can read it (`created_by = auth.uid()`). There are no insert or update
+    grants. Links are made and revoked through `create_share(trip)` (owner and editors; it revokes any live link
+    first, so a new link always gets a new token) and `revoke_share(trip)` (any owner or editor, whoever made the
+    link). `share_is_on(trip)` tells members whether sharing is on without showing the token. All three refuse
+    signed-out callers.
+  - `create extension if not exists pgcrypto with schema extensions`: Supabase has it already, and the local
+    test database needs it.
+- Approach: functions rather than direct writes, because a direct `update ... set revoked_at` would need
+  editors to read the row, and only the creator may read tokens. With the functions, any editor can still turn a
+  link off.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `shares_test.sql` checks the token's shape.
+    It checks that the creator reads their link and the owner, viewers and strangers read nothing. Members see
+    `share_is_on` and strangers don't. Signed-out callers get no access. Viewers can't create or revoke, and nobody
+    inserts or updates directly. A new link revokes the old token, leaving one live link. Any editor can revoke,
+    and deleting the trip deletes its links.
+  - `npm test` → exit 0.
+
+## W2 `share` Edge Function
+- Changes:
+  - `supabase/functions/share/index.ts` (new): `POST {"token"}` with no sign-in. A malformed, unknown or revoked
+    token gets 404 before anything else is read or signed. For a live token it returns the trip's name, dates,
+    start and end labels and theme, its day notes, and its media rows with only the taker's display name (no
+    contributor id, no emails). Each item comes with signed links, valid 1 hour, to `thumb.jpg` plus `display.jpg`
+    (photos) or `poster.jpg` (videos), all from one batch signing call. It never signs `original` or `video.mp4`.
+    It answers the browser's CORS preflight, since the website is on another origin.
+  - It reads with `SUPABASE_SERVICE_ROLE_KEY`, which Supabase gives every Edge Function, through the REST and
+    Storage HTTP APIs. Like `route`, it takes its dependencies as `Deps`, so tests run offline.
+- Verification:
+  - Check `deno test supabase/functions/` → `11 passed | 0 failed`. The new `share/index_test.ts` has 5 tests: a
+    live token gets the trip, notes and media with signed links, and a revoked, unknown or malformed token gets
+    404 with nothing signed. The response contains no `original` and no `@`, and only thumb, display and poster
+    are signed. One signing call asks for `expiresIn: 3600`. Only POST is answered, and the preflight gets CORS
+    headers.
+  - `npm test` → exit 0.
+- Follow-ups: **needs deploying** with `supabase functions deploy share` and the migration applied. Nothing is
+  deployed from this sandbox.
+
+## W3 Read-only share view on the website
+- Changes:
+  - `data/Shares.kt` (new): `shareLink(token)` gives `https://lbondoc.github.io/Postmarked/#/s/<token>`, and
+    `shareTokenOf(hash)` reads the token back. `Shares` has `open` (calls the `share` function with no
+    sign-in), plus `isOn`, `myToken`, `create` and `revoke` (W1's functions and table) for the trip page.
+  - `ui/SharedTripScreen.kt` (new): the read-only trip. It shows the name and dates, the route drawn on paper,
+    photos by day with that day's note in handwriting, and a full-screen swipe viewer with who took each photo.
+    The route is straight lines between stops, because road routing needs an account and the shape of the trip
+    is what matters here. Videos show their poster and say to play them in the app, because the function signs
+    no video files. There are no editing controls at all.
+  - `ui/App.kt`: `App(sharedToken = …)` shows that screen instead of sign-in. `webApp/.../Main.kt` passes the
+    token from `window.location.hash`.
+  - `ui/TripScreen.kt`: editors get **Share link** next to Invite. The dialog warns that anyone with the link can
+    see the photos, day notes and a map of where you went, without an account. It turns the link on (**Make a
+    new link** if another editor's link is live, since only its creator can read that token), sends the link,
+    or turns it off.
+  - `web/smoke.mjs --share`: stubs the `share` function and the image links with Playwright routes, opens
+    `#/s/<token>`, and requires the trip heading, a Day 1 heading and a photo button, with no Sign in button and
+    no console errors. The default run is unchanged. CI's web job runs both.
+  - `README.md`: setup step 6 explains deploying `share` with JWT verification off. People opening a link have
+    no account, and the publishable key isn't a JWT.
+- Verification:
+  - Check `./gradlew :webApp:wasmJsBrowserDistribution && node web/smoke.mjs --share` → "smoke test passed:
+    shared trip gallery rendered with no console errors". The screenshot shows the heading, dates, route, both
+    days and the day note. The plain `node web/smoke.mjs` still passes.
+  - `ShareLinkTest` → `tests="2" failures="0"` (the link round-trips; other addresses and malformed tokens are
+    not share links).
+  - `npm test` → exit 0.
+  - Sandbox: this container started fresh, so the wasm tooling folder was set up by hand again (karma 6.4.4
+    from npm, as in the notes above) and the web build ran with `-x kotlinWasmToolingSetup`.
+- Follow-ups: **needs manual check** with the deployed function: open a real link in a private window, then turn
+  it off and reload.
+
+## E1 Trip edits keep day notes inside the dates
+- Changes:
+  - `supabase/migrations/20261202000000_trip_edit.sql` (new): a `before update of start_date, end_date` trigger
+    on `trips`. If a day note would fall outside the new dates, the save is refused with "Day 6 (Wed 07 Oct)
+    has a note. Delete or move it first." (`check_violation`). Days are counted from the old start, as the person
+    knows them. Nothing is deleted.
+  - `edit_trip(trip, name, start, end, regions, start_point, end_point)` saves the Edit trip form (E2) in one
+    transaction, so a refused date change can't leave the regions half-saved. It reuses `_point` and
+    `_replace_regions` from M1 and is for owners and editors only. `set_trip_regions` is unchanged.
+- Approach: SPEC §9.1 settled "block until moved". The trigger lives on `trips`, so a direct PostgREST update is
+  covered as well as the function.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `trip_edit_test.sql` checks that an editor
+    renames (trimmed) and changes the dates, start and end points and regions, and can clear the points. It checks
+    that `set_trip_regions` still works for editors and that a viewer can do none of it. Shortening past a note
+    is refused with the exact message and leaves the dates and note as they were, both through `edit_trip` and
+    through a direct update. Shortening to a range that still holds the note works, and a rename doesn't trip
+    the check. The test deletes its trip at the end, because `trips_test.sql` (unchanged) expects an empty table.
+  - `npm test` → exit 0.
+
+## E2 Edit trip screen
+- Changes:
+  - `ui/TripForm.kt` (new): `TripForm` (name, dates, regions, optional start and end points) with `canSave`: a
+    name, dates in order, and at least one region. `tripEdit(original, form)` returns what Save sends: the whole
+    form, with regions replaced whole, or null when nothing changed (outer spaces in the name don't count).
+    `EditableTrip.toForm()` fills the form from the stored trip.
+  - `data/Trips.kt`: `TripPoint`, `EditableTrip` (read with the existing `start_geojson`, `end_geojson` and
+    `geojson` columns), `forEditing(id)`, and `edit(...)`, which calls E1's `edit_trip`. `create` shares the
+    request body and now also sends start and end points when they are set.
+  - `ui/NewTripScreen.kt`: `NewTripViewModel(editing)` keeps the form in the view model and loads the trip when
+    editing. `EditTripScreen` is the same screen titled "Edit trip" with **Save changes**. Search results gain
+    **Start** and **End** buttons, which set that point at the place's centre; chips show and clear them. The
+    date picker opens on the current dates. Save is enabled only when `canSave`, sends nothing if unchanged, and
+    goes back to the trip, which reloads. E1's refusal ("Day 6 (Wed 07 Oct) has a note…") shows as the form's
+    error, through `ScreenModel.run`.
+  - `ui/TripScreen.kt` and `ui/App.kt`: an **Edit** button in the trip page's top bar for editors and the owner,
+    and the `EditTripRoute`.
+  - `core/domain/.../geo/Places.kt`: `Place.centre()`, the middle of a place's bounding box, used for start and
+    end points. E6 reuses it for photo locations.
+- Verification:
+  - Check `EditTripTest` → `tests="4" failures="0"`: the form starts with the trip's values, read from a stored
+    row (dates, both regions with outlines, the start point, no end point). No changes, or a name differing only
+    in spaces, sends nothing, and a rename is sent trimmed. An end before the start disables Save, as do a blank
+    name, no regions or no start, but a one-day trip is fine. A changed region list is sent whole, with the rest
+    of the form.
+  - `PlacesTest` → `tests="5" failures="0"` (new: the centre of a polygon and of a two-part MultiPolygon, and
+    null with no coordinates).
+  - `:composeApp:compileKotlinWasmJs` passes; `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the phone. Shorten a trip past a day note, check that the message appears
+  and nothing is saved, then move the note and save again.
+
+## E3 Media date and place can be edited
+- Changes:
+  - `supabase/migrations/20261203000000_media_edit.sql` (new): `media.date_by_hand` and
+    `media.location_by_hand` (boolean, default false), with an insert grant so an upload can say its day was
+    chosen (E4). `edit_media(media, captured_at, utc_offset_minutes, lat, lng)` is security definer and lets
+    only the uploader and the trip owner change the date, time zone and place. Changing the date or zone marks
+    `date_by_hand`, a new place marks `location_by_hand`, and lat and lng both null clear the place (and the
+    mark). A missing date, half a place, or a place off the map is refused (the latter through M1's `_point`).
+- Approach (differs from the task's wording): the task suggested an update policy plus a column grant. M5's
+  "owner and editors fill in palettes" policy already lets every editor update media rows, and Postgres ORs
+  policies together. A grant on `captured_at` and `location` would therefore let any editor move anyone's photo,
+  not just the uploader and owner that SPEC §9.3 settled on. A function that checks the caller itself has no such
+  gap, and there is still no update grant on the date, place, trip, contributor or fingerprint columns.
+- Verification:
+  - Check `./supabase/tests/run.sh` → `database tests passed`. The new `media_edit_test.sql` checks the following.
+    Camera values aren't marked, and an upload can insert `date_by_hand`. The uploader and the owner can change
+    the date and place, and both get marked; another editor and a viewer can't, either through the function or
+    with a direct `update` of the date or place. Nobody, including the owner and uploader, can change `trip_id`,
+    `contributor` or `sha256`. A place can be cleared, which unmarks it. A missing date, half a place and an
+    off-map place are refused. The test deletes its trip at the end.
+  - `npm test` → exit 0.
+
+## E4 Files with no date
+- Changes:
+  - `data/Media.kt`: `DeviceMedia` gains `dateKnown` (default true), plus `dateByHand` and `locationByHand`.
+    These have defaults, so queued uploads saved by an older build still load. `Media.add` sends `date_by_hand` and
+    `location_by_hand` (E3's columns) when they are true.
+  - `data/PickedFiles.kt`: `pickedMedia` sets `dateKnown = false` when the file has no EXIF date. The modified
+    time stays on the item, but only as a suggestion. The web used to use it as the date without asking, which
+    is wrong for screenshots and copies. `suggestedDay(item, start, end)` gives that day only when it falls
+    within the trip.
+  - `ui/ImportScreen.kt`: `sortForTrip` puts files with no date in a new `Found.noDate` group, since they can't
+    be matched by date, and the review screen shows it first as **No date in the file**. Picked-by-hand files
+    there start ticked, like the rest. Each cell shows its chosen day ("Day 2") or "No day". **Set day** on the
+    section opens a picker of the trip's days, with an optional time ("14:30") that is checked as it is typed,
+    for the ticked ones. Days are pre-filled from `suggestedDay`. **Add** stays disabled until every ticked
+    undated file has a day (`readyToAdd`). `withChosenDay` dates such a file at the chosen time, or noon, in the
+    device's zone, with no UTC offset (the file recorded none), and marks it `dateByHand`.
+- Approach: the phone's camera-roll scan reads MediaStore's taken date, so its items keep `dateKnown = true`. The
+  no-date path matters for the web picker now and for Android's system picker in E5.
+- Verification:
+  - Check `PickedFilesTest` → `tests="7" failures="0"` (new case: no EXIF date gives `dateKnown = false`, with a
+    suggested day only when the modified day is inside the trip; a file with an EXIF date is known and needs no
+    suggestion). The existing "no EXIF falls back to the file date" case passes unchanged.
+  - Check `StartTickedTest` → `tests="5" failures="0"`. New cases: Add stays disabled while any ticked undated item
+    has no day, and nothing-ticked is also disabled. A chosen day with no time is noon in Los Angeles
+    (19:00 UTC), with no offset and marked by hand; 8:15 gives 15:15 UTC. Undated files start ticked only when
+    picked by hand.
+  - Check `node web/smoke.mjs` → passed (and `--share` still passes). `npm test` → exit 0.
+- Follow-ups: **needs manual check** on the website. Pick a screenshot, choose Day 2, add it, and see it under
+  Day 2 in the gallery.
+
+## E5 Add from anywhere on Android
+- Changes:
+  - `data/Media.kt`: `CameraRoll` gains `pickAnywhere()` and `canPickAnywhere`, both off by default. The website's
+    picker already is "anywhere", and iOS has no camera roll yet.
+  - `androidApp/.../AndroidCameraRoll.kt`: Android's system photo picker (`PickMultipleVisualMedia`, up to 100
+    items, no permission needed), registered in `onCreate` like the permission request. Each picked file is
+    read the way the website reads one: up to 128 KB of a photo through the shared `readExif`, then
+    `pickedMedia`, with the file's `DATE_MODIFIED` as the suggested day (E4). The app takes a persistable read
+    grant on each address, because uploads run later in WorkManager, perhaps after a restart.
+  - `androidApp/.../CameraRollFiles.kt`: `originalUri` doesn't ask for the original on picker addresses
+    (`content://media/picker/...`), which aren't MediaStore items and refuse it.
+  - `ui/ImportScreen.kt`: **From anywhere** in the review screen's top bar where the platform has a picker. The
+    picked files replace the scan, all ticked (`pickedByHand`), and go through the same sections, including No
+    date in the file. The empty "nothing from these dates" message points to it.
+- Verification:
+  - Check `./gradlew :androidApp:assembleDebug` → `BUILD SUCCESSFUL`, as part of `npm test` → exit 0. The fresh
+    APK's dex contains `pickAnywhere`.
+  - **Needs manual check** on the phone, as the task describes: pick a screenshot and a photo from a year ago.
+    The screenshot should land in No date in the file, and after choosing Day 2 it should show under Day 2 in
+    the gallery.
+- Follow-ups: Android's photo picker removes location data from the files it hands out, so photos picked this
+  way have no GPS. They land in No location saved, or in No date in the file, and E6 lets people set the place.
+
+## E6 Edit date and place
+- Changes:
+  - `data/Media.kt`: `TripMedia` reads `date_by_hand` and `location_by_hand`. Both default to false, so trips
+    cached by an older build still load. `Media.edit` calls E3's `edit_media`.
+  - `ui/MediaInfo.kt`: the info panel says "Date set by hand" after the time and "Location set by hand" after
+    the place. The second line shows even while the place name is still loading.
+  - `ui/EditDatePlace.kt` (new): `DatePlaceDialog`. It offers the trip's days as chips (plus the photo's own day,
+    if that falls outside them) and an optional time ("14:30", checked as typed). The place is found with the
+    New trip search, set at the result's centre (`Place.centre()`, from E2), and can be cleared. `momentOf`
+    reads the chosen time with the photo's own UTC offset when the camera recorded one, else the device zone,
+    so editing a photo and saving it unchanged keeps its moment. `clockOf` parses the time, and E4's day picker
+    now uses it too.
+  - `ui/PinPicker.kt` plus actuals: on Android a MapLibre map (the trip map's keyless style) under a fixed pin.
+    Dragging the map moves the spot, which is read from the camera's centre. Web and iOS have none
+    (`hasPinPicker = false`, a `shortcut:` comment), so there it is the search alone, as SPEC §9.3 settled.
+  - `ui/Viewer.kt` and `ui/TripScreen.kt`: **Edit date and place** under the info lines, shown to the uploader
+    and the trip owner (the server checks too). After saving, the viewer closes and the gallery reloads, since
+    the photo may have moved to another day.
+  - `ui/ImportScreen.kt`: **Set place** on No location saved, and on No date in the file for ticked files without
+    a place. It opens the same dialog, place only, before upload. Cells say "Place set", and the upload carries
+    the place with `location_by_hand`. Cells' spoken descriptions now say "with no date" only for files that
+    really have none.
+  - `README.md`: setup step 1 says to apply new migrations before installing a build that needs them. From now
+    on the gallery reads E3's columns.
+- Approach: the "cached route" needed no extra code. The route is rebuilt from the trip's media every time the
+  map opens, and the router's in-memory cache is keyed by the stops' coordinates, so a moved photo changes the key
+  and is routed afresh.
+- Verification:
+  - Check `MediaInfoTest` → `tests="6" failures="0"`. The new cases check that the by-hand lines appear only when
+    the flags are set, and in the right places, even with no place name. A hand-set place is a route point at
+    that spot. A chosen moment keeps the camera's offset (14:15 at −7 h is 21:15 UTC; noon without a time).
+    `clockOf` reads " 9:05 " and refuses "25:00" and "noon".
+  - Check `RouteTest` → `tests="17" failures="0"` (new: one photo placed by hand at Monterey, between GPS stops
+    at Santa Cruz and Big Sur, becomes its own stop with legs on both sides rather than being dropped as a GPS
+    glitch).
+  - `:composeApp:compileKotlinWasmJs` and `:androidApp:assembleDebug` pass. The website smoke tests pass (sign-in
+    and `--share`). `npm test` → exit 0.
+- Follow-ups:
+  - **Needs manual check** on the phone. Open a photo, choose Edit date and place, move it to Day 2 and drag
+    the pin a block over, then check that the gallery, the info lines and the map follow.
+  - The iOS actual isn't compiled here, because there is no Mac. It is a one-line stub that CI's `ios` job will
+    compile.

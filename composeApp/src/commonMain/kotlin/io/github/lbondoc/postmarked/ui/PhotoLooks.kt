@@ -6,6 +6,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import kotlin.math.exp
+import kotlin.math.ln
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -179,7 +183,8 @@ enum class PhotoTab(val label: String) { Filter("Filter"), Adjust("Adjust"), Cro
 
 /**
  * A full-screen editor for one tile's photo, on a dark surround. Nothing is kept until Done.
- * [aspect] is the tile's shape (width / height), so the crop shows exactly what the tile will.
+ * [aspect] is the tile's shape (width / height), so the crop shows exactly what the tile will. In an [adaptive]
+ * layout the tile takes the crop's chosen shape instead (SPEC §8.4); a strict grid keeps [aspect].
  * [gradeOf] draws a tile as the summary would, so the preview includes the summary's look.
  */
 @Composable
@@ -188,6 +193,7 @@ fun EditPhotoScreen(
     picture: String?,
     thumbnail: String?,
     aspect: Float,
+    adaptive: Boolean,
     startTab: PhotoTab,
     gradeOf: (SummaryTile) -> FloatArray?,
     onDone: (SummaryTile) -> Unit,
@@ -217,7 +223,7 @@ fun EditPhotoScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Box(Modifier.fillMaxWidth().heightIn(max = 380.dp), contentAlignment = Alignment.Center) {
-                        Box(Modifier.aspectRatio(aspect)) {
+                        Box(Modifier.aspectRatio(draft.crop?.aspect?.takeIf { adaptive }?.toFloat() ?: aspect)) {
                             CroppedPhoto(
                                 picture, draft.crop, if (comparing) null else matrixFilter(gradeOf(draft)),
                                 Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
@@ -250,8 +256,10 @@ fun EditPhotoScreen(
                         PhotoTab.Filter -> FilterStrip("Filter · this photo", look, thumbnail, { f -> gradeOf(draft.copy(look = look.copy(filter = f).toData())) }, ::setLook)
                         PhotoTab.Adjust -> ToolPicker("Adjust · this photo", lookTools(look, Adjustment.entries, ::setLook)) { setLook(look.copy(adjust = emptyMap())) }
                         PhotoTab.Crop -> {
-                            Text("Drag the photo to move it, pinch to zoom. The frame is the tile's shape.", style = MaterialTheme.typography.bodyMedium)
                             val crop = draft.crop ?: Crop()
+                            if (adaptive) CropShapes(crop) { draft = draft.copy(crop = it) }
+                            else Text("Shape ${ratioLabel(aspect.toDouble())}: this layout's tiles have fixed shapes.", style = MaterialTheme.typography.labelLarge)
+                            Text("Drag the photo to move it, pinch to zoom.", style = MaterialTheme.typography.bodyMedium)
                             Text("Zoom ${(crop.zoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
                             Slider(
                                 value = crop.zoom.toFloat(), onValueChange = { draft = draft.copy(crop = crop.copy(zoom = it.toDouble())) },
@@ -264,6 +272,33 @@ fun EditPhotoScreen(
                 }
             }
         }
+    }
+}
+
+/** The crop shapes offered in adaptive layouts; null is the photo's own shape. */
+private val CROP_SHAPES = listOf("Original" to null, "1:1" to 1.0, "4:5" to 4.0 / 5, "3:4" to 3.0 / 4, "16:9" to 16.0 / 9)
+
+/** "4:5" for a preset shape, else the width / height to two places. */
+private fun ratioLabel(a: Double): String =
+    CROP_SHAPES.firstOrNull { it.second != null && abs(it.second!! - a) < 0.01 }?.first ?: ((a * 100).roundToInt() / 100.0).toString()
+
+/** Original, the presets and Free (a slider from 1:2 to 2:1). Changing the shape reflows the layout. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CropShapes(crop: Crop, onChange: (Crop) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((label, a) in CROP_SHAPES) InkChip(label, !crop.free && crop.aspect == a, { onChange(crop.copy(aspect = a, free = false)) })
+        InkChip("Free", crop.free, { onChange(crop.copy(aspect = crop.aspect ?: 1.0, free = true)) })
+    }
+    if (crop.free) {
+        val a = crop.aspect ?: 1.0
+        Text("Shape ${ratioLabel(a)}", style = MaterialTheme.typography.labelLarge)
+        // ln scale, so 1:2 and 2:1 sit the same distance from square.
+        Slider(
+            value = ln(a).toFloat(), onValueChange = { onChange(crop.copy(aspect = exp(it.toDouble()))) },
+            valueRange = -ln(2f)..ln(2f), modifier = Modifier.semantics { contentDescription = "Crop shape" },
+            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.onSurface, activeTrackColor = MaterialTheme.colorScheme.onSurface),
+        )
     }
 }
 

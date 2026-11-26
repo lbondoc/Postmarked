@@ -9,6 +9,7 @@ import io.github.lbondoc.postmarked.domain.trip.TripArea
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -40,6 +41,39 @@ data class Member(
 
 @Serializable
 data class Region(val label: String)
+
+/** A trip's start or end: a named point. */
+@Serializable
+data class TripPoint(val label: String, val lat: Double, val lng: Double) {
+    fun toJson() = buildJsonObject { put("label", label); put("lat", lat); put("lng", lng) }
+}
+
+/** A trip's editable fields as stored. The points and outlines are GeoJSON. */
+@Serializable
+data class EditableTrip(
+    val name: String,
+    @SerialName("start_date") val startDate: LocalDate,
+    @SerialName("end_date") val endDate: LocalDate,
+    @SerialName("start_label") val startLabel: String? = null,
+    @SerialName("end_label") val endLabel: String? = null,
+    @SerialName("start_geojson") val startGeojson: JsonObject? = null,
+    @SerialName("end_geojson") val endGeojson: JsonObject? = null,
+    @SerialName("trip_regions") val regions: List<RegionOutline> = emptyList(),
+) {
+    @Serializable
+    data class RegionOutline(val label: String, val geojson: JsonObject)
+
+    val startPoint: TripPoint? get() = point(startLabel, startGeojson)
+    val endPoint: TripPoint? get() = point(endLabel, endGeojson)
+
+    // {"type": "Point", "coordinates": [lng, lat]}
+    private fun point(label: String?, geojson: JsonObject?): TripPoint? {
+        val c = (geojson?.get("coordinates") as? kotlinx.serialization.json.JsonArray) ?: return null
+        val lng = (c.getOrNull(0) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return null
+        val lat = (c.getOrNull(1) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return null
+        return TripPoint(label ?: "", lat, lng)
+    }
+}
 
 @Serializable
 data class Trip(
@@ -73,19 +107,37 @@ object Trips {
         supabase.from("trips").select(Columns.raw(DETAIL)) { filter { eq("id", id) } }.decodeSingle()
 
     /** Creates the trip with the caller as owner and returns its id. */
-    suspend fun create(name: String, start: LocalDate, end: LocalDate, regions: List<Place>): String =
-        supabase.postgrest.rpc("create_trip", buildJsonObject {
-            put("p_name", name)
-            put("p_start_date", start.toString())
-            put("p_end_date", end.toString())
-            putJsonArray("p_regions") {
-                for (place in regions) addJsonObject {
-                    put("label", place.label.take(120)) // the column's limit
-                    put("source", "place")
-                    put("geometry", place.geometry)
-                }
+    suspend fun create(name: String, start: LocalDate, end: LocalDate, regions: List<Place>, from: TripPoint? = null, to: TripPoint? = null): String =
+        supabase.postgrest.rpc("create_trip", tripFields(name, start, end, regions, from, to)).decodeAs()
+
+    /** The trip as the Edit trip form shows it: dates, start and end points, and each region's outline. */
+    suspend fun forEditing(id: String): EditableTrip =
+        supabase.from("trips").select(
+            Columns.raw("name,start_date,end_date,start_label,end_label,start_geojson,end_geojson,trip_regions(label,geojson)"),
+        ) { filter { eq("id", id) } }.decodeSingle()
+
+    /** Saves the Edit trip form in one transaction (owner and editors). Fails naming the day if a note would fall outside the dates. */
+    suspend fun edit(id: String, name: String, start: LocalDate, end: LocalDate, regions: List<Place>, from: TripPoint?, to: TripPoint?) {
+        supabase.postgrest.rpc("edit_trip", buildJsonObject {
+            put("p_trip", id)
+            tripFields(name, start, end, regions, from, to).forEach { (k, v) -> put(k, v) }
+        })
+    }
+
+    private fun tripFields(name: String, start: LocalDate, end: LocalDate, regions: List<Place>, from: TripPoint?, to: TripPoint?) = buildJsonObject {
+        put("p_name", name)
+        put("p_start_date", start.toString())
+        put("p_end_date", end.toString())
+        putJsonArray("p_regions") {
+            for (place in regions) addJsonObject {
+                put("label", place.label.take(120)) // the column's limit
+                put("source", "place")
+                put("geometry", place.geometry)
             }
-        }).decodeAs()
+        }
+        put("p_start", from?.toJson() ?: JsonNull)
+        put("p_end", to?.toJson() ?: JsonNull)
+    }
 
     /** Returns a fresh invite token. The server keeps only its hash, so it cannot be shown again. */
     /** Owners and editors set the album theme; everyone on the trip then sees it. */
